@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:analyzer/dart/ast/ast.dart';
 import 'package:analyzer/dart/analysis/utilities.dart';
+import 'package:api_model_scanner/src/fix_runner.dart';
 import 'package:args/args.dart';
 import 'package:path/path.dart' as p;
 
@@ -342,9 +343,37 @@ Future<void> main(List<String> arguments) async {
       'all',
       defaultsTo: false,
       help: 'Scan all Dart files instead of only models directory.',
+    )
+    ..addFlag(
+      'fix',
+      defaultsTo: false,
+      negatable: false,
+      help: 'Remove unused fields from the source files.',
+    )
+    ..addFlag(
+      'dry-run',
+      defaultsTo: false,
+      negatable: false,
+      help: 'Show what --fix would change without writing anything.',
+    )
+    ..addFlag(
+      'format',
+      defaultsTo: true,
+      help: 'Run `dart format` on modified files after --fix.',
+    )
+    ..addFlag(
+      'force',
+      defaultsTo: false,
+      negatable: false,
+      help: 'Apply --fix even if the git working tree is dirty.',
     );
 
   final args = parser.parse(arguments);
+
+  final apply = args['fix'] as bool;
+  final dryRun = args['dry-run'] as bool;
+  final runFormat = args['format'] as bool;
+  final force = args['force'] as bool;
 
   final projectRoot = Directory.current.absolute.path;
 
@@ -356,7 +385,23 @@ Future<void> main(List<String> arguments) async {
   print('');
   print('Project: $projectRoot');
   print('Models:  $modelsPath');
+  if (apply || dryRun) {
+    print('Mode:    ${apply ? 'FIX' : 'DRY-RUN'}');
+  }
   print('');
+
+  // Git safety: refuse to rewrite sources on a dirty tree unless forced.
+  if (apply && !force) {
+    final dirty = await gitWorkingTreeDirty(projectRoot);
+    if (dirty == true) {
+      stderr.writeln(
+        'Refusing to --fix: git working tree is not clean.\n'
+        'Commit or stash your changes first, or pass --force.',
+      );
+      exitCode = 1;
+      return;
+    }
+  }
 
   final fields = await findModelFields(projectRoot: projectRoot, modelsPath: modelsPath);
 
@@ -365,6 +410,8 @@ Future<void> main(List<String> arguments) async {
 
   final server = DartLanguageServer();
 
+  final unused = <ModelField>[];
+
   try {
     print('Starting Dart language server...');
 
@@ -372,8 +419,6 @@ Future<void> main(List<String> arguments) async {
 
     print('Dart language server ready.');
     print('');
-
-    final unused = <ModelField>[];
 
     for (var i = 0; i < fields.length; i++) {
       final field = fields[i];
@@ -408,37 +453,57 @@ Future<void> main(List<String> arguments) async {
     }
 
     print('\n');
-
-    if (unused.isEmpty) {
-      print('No unused model fields found.');
-      return;
-    }
-
-    print(
-      'Potentially unused model fields: '
-      '${unused.length}',
-    );
-    print('');
-
-    String? currentClass;
-
-    for (final field in unused) {
-      if (currentClass != field.className) {
-        currentClass = field.className;
-
-        print('');
-        print('${field.className}:');
-      }
-
-      print(
-        '  - ${field.fieldName}'
-        ' (${p.relative(field.filePath, from: projectRoot)}'
-        ':${field.line + 1})',
-      );
-    }
-
-    print('');
   } finally {
     await server.shutdown();
   }
+
+  if (unused.isEmpty) {
+    print('No unused model fields found.');
+    return;
+  }
+
+  print(
+    'Potentially unused model fields: '
+    '${unused.length}',
+  );
+  print('');
+
+  // With --fix or --dry-run, delegate removal to the shared fix runner
+  // (the same code path the standalone fixer binary uses).
+  if (apply || dryRun) {
+    await applyFixes(
+      projectRoot: projectRoot,
+      unused: unused
+          .map((f) => UnusedField(
+                filePath: f.filePath,
+                className: f.className,
+                fieldName: f.fieldName,
+              ))
+          .toList(),
+      apply: apply,
+      dryRun: dryRun,
+      runFormat: runFormat,
+    );
+    return;
+  }
+
+  // Default behaviour: report only.
+  String? currentClass;
+
+  for (final field in unused) {
+    if (currentClass != field.className) {
+      currentClass = field.className;
+
+      print('');
+      print('${field.className}:');
+    }
+
+    print(
+      '  - ${field.fieldName}'
+      ' (${p.relative(field.filePath, from: projectRoot)}'
+      ':${field.line + 1})',
+    );
+  }
+
+  print('');
 }
