@@ -57,23 +57,148 @@ Future<CleanupResult> cleanupAfterRemoval({
     log?.call('  - unused import in ${p.relative(entry.key, from: projectRoot)}');
   }
 
-  // 2. Delete files that no longer declare anything.
+  // 2. Delete files that no longer declare anything — unless something still
+  //    imports them.
+  //
+  //    A dangling import is an error in the *importing* file, which need not
+  //    be one this run touched, so verifying only the files we edited would
+  //    never see it. Rather than widening verification to the whole package,
+  //    do not create the breakage: an empty file that someone still imports
+  //    is harmless, while deleting it is not.
+  final candidates = <String>[];
   for (final path in modifiedFiles) {
     final file = File(path);
     if (!file.existsSync()) {
       continue;
     }
-    final content = file.readAsStringSync();
-    if (!_declaresNothing(content, path)) {
-      continue;
+    if (_declaresNothing(file.readAsStringSync(), path)) {
+      candidates.add(path);
     }
-    restoreOnFailure.putIfAbsent(path, () => content);
-    file.deleteSync();
-    deleted.add(path);
-    log?.call('  - empty file ${p.relative(path, from: projectRoot)}');
+  }
+
+  if (candidates.isNotEmpty) {
+    final importers = _importersOf(projectRoot, candidates);
+
+    for (final path in candidates) {
+      // An importer that is itself being deleted holds nothing back.
+      final held = (importers[path] ?? const <String>{})
+          .where((f) => !candidates.contains(f))
+          .toList();
+
+      final rel = p.relative(path, from: projectRoot);
+
+      if (held.isNotEmpty) {
+        log?.call('  - kept empty file $rel — still imported by '
+            '${held.length} file${held.length == 1 ? '' : 's'}');
+        continue;
+      }
+
+      final file = File(path);
+      restoreOnFailure.putIfAbsent(path, () => file.readAsStringSync());
+      file.deleteSync();
+      deleted.add(path);
+      log?.call('  - empty file $rel');
+    }
   }
 
   return CleanupResult(importsStrippedFrom: stripped, deletedFiles: deleted);
+}
+
+/// Maps each of [targets] to the files that still reference it.
+///
+/// Directives are read from the AST rather than matched textually, and both
+/// `package:` and relative URIs are resolved to absolute paths, so an import
+/// counts however it is spelled.
+Map<String, Set<String>> _importersOf(String projectRoot, List<String> targets) {
+  final wanted = {for (final t in targets) p.normalize(p.absolute(t))};
+  final result = <String, Set<String>>{};
+
+  final packageName = _packageName(projectRoot);
+  final libDir = p.join(projectRoot, 'lib');
+
+  for (final dir in ['lib', 'bin', 'test', 'tool']) {
+    final directory = Directory(p.join(projectRoot, dir));
+    if (!directory.existsSync()) {
+      continue;
+    }
+
+    for (final file in directory.listSync(recursive: true).whereType<File>()) {
+      if (!file.path.endsWith('.dart')) {
+        continue;
+      }
+      final from = p.normalize(p.absolute(file.path));
+      if (wanted.contains(from)) {
+        continue;
+      }
+
+      final String content;
+      try {
+        content = file.readAsStringSync();
+      } catch (_) {
+        continue;
+      }
+
+      final CompilationUnit unit;
+      try {
+        unit = parseString(
+          content: content,
+          path: file.path,
+          throwIfDiagnostics: false,
+        ).unit;
+      } catch (_) {
+        continue;
+      }
+
+      for (final directive in unit.directives) {
+        final uri = switch (directive) {
+          ImportDirective(:final uri) => uri.stringValue,
+          ExportDirective(:final uri) => uri.stringValue,
+          PartDirective(:final uri) => uri.stringValue,
+          _ => null,
+        };
+        if (uri == null || uri.startsWith('dart:')) {
+          continue;
+        }
+
+        final String resolved;
+        if (uri.startsWith('package:')) {
+          final rest = uri.substring('package:'.length);
+          final slash = rest.indexOf('/');
+          if (slash == -1 ||
+              packageName == null ||
+              rest.substring(0, slash) != packageName) {
+            continue;
+          }
+          resolved = p.normalize(p.join(libDir, rest.substring(slash + 1)));
+        } else {
+          resolved =
+              p.normalize(p.join(p.dirname(from), uri));
+        }
+
+        if (wanted.contains(resolved)) {
+          result.putIfAbsent(resolved, () => <String>{}).add(from);
+        }
+      }
+    }
+  }
+
+  return result;
+}
+
+/// The `name:` from the project's pubspec, used to resolve `package:` URIs
+/// that point back into this same project.
+String? _packageName(String projectRoot) {
+  final file = File(p.join(projectRoot, 'pubspec.yaml'));
+  if (!file.existsSync()) {
+    return null;
+  }
+  try {
+    final match = RegExp(r'^name:\s*(\S+)', multiLine: true)
+        .firstMatch(file.readAsStringSync());
+    return match?.group(1);
+  } catch (_) {
+    return null;
+  }
 }
 
 /// Whether a source file has no remaining top-level declarations.

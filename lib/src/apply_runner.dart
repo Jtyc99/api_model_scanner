@@ -511,7 +511,10 @@ Future<ApplySummary> applySelection({
           if (!cleanup.deletedFiles.contains(f)) f,
       ];
 
-      // Deleting a file can break whoever imported it, so re-verify wider.
+      // Re-verify: stripping an import can leave a name unresolved. Deleting
+      // a file cannot break an importer, because cleanup refuses to delete
+      // one anything still imports — which is what keeps this check, over the
+      // files we edited, sufficient.
       final after = await analysisErrors(projectRoot, cleanedFiles);
       if (after == null || after.isNotEmpty) {
         for (final entry in originals.entries) {
