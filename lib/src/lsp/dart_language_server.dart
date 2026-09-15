@@ -6,6 +6,8 @@ import 'package:path/path.dart' as p;
 
 import '../model.dart';
 
+import '../version.dart';
+
 /// A thin LSP client that drives `dart language-server` over stdio.
 ///
 /// LSP messages are framed with a `Content-Length` header and are *not*
@@ -54,7 +56,7 @@ class DartLanguageServer {
   Future<void> _initialize(String projectRoot) async {
     final result = await request('initialize', {
       'processId': pid,
-      'clientInfo': {'name': 'api-model-scanner', 'version': '1.0.0'},
+      'clientInfo': {'name': 'api-model-scanner', 'version': packageVersion},
       'locale': 'en',
       'rootPath': projectRoot,
       'rootUri': Uri.file(projectRoot).toString(),

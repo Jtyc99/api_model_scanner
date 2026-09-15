@@ -9,6 +9,7 @@ import '../cache/disabled_plan.dart';
 import '../cache/disabled_store.dart';
 import '../cache/selection.dart';
 import '../cache/unused_cache.dart';
+import '../version.dart';
 import 'config.dart';
 import '../model.dart';
 import '../model_field_fixer.dart';
@@ -19,7 +20,7 @@ import 'editor.dart';
 import 'prompt.dart';
 
 /// Version reported by `--version`. Keep in sync with pubspec.yaml.
-const String packageVersion = '1.0.0';
+
 
 /// Parses [arguments] and runs the matching command. Returns a process exit
 /// code; never throws for ordinary usage errors.
