@@ -1,10 +1,22 @@
 name: api_model_scanner
-description: A Dart package that scans and analyzes API models.
-version: 1.0.0
-# repository: https://github.com/my_org/my_repo
+description: >-
+  A CLI that finds API model fields your Flutter/Dart app never uses, and
+  removes them with AST-aware source edits.
+version: 2.0.0
+repository: https://github.com/JtycEdgeTech/api_model_scanner
 
 environment:
   sdk: ^3.11.4
+
+# Commands installed by `dart pub global activate`.
+#
+# NOTE: this package must NOT be added to a Flutter app's pubspec. It needs
+# analyzer ^14, which requires meta ^1.18.3, while the Flutter SDK pins
+# meta 1.17.0. Global activation resolves these dependencies in isolation,
+# so the CLI works from inside any Flutter project.
+executables:
+  api_model_scanner: api_model_scanner
+  amscan: api_model_scanner
 
 # Add regular dependencies here.
 dependencies:
