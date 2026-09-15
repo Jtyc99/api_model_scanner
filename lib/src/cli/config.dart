@@ -114,3 +114,14 @@ class ModelsConfig {
     return null;
   }
 }
+
+/// Thrown when a command needs a models directory and none is configured.
+///
+/// Deliberately not recoverable by guessing: see `resolveModels`.
+class ModelsDirectoryNotSet implements Exception {
+  const ModelsDirectoryNotSet();
+
+  @override
+  String toString() =>
+      'No models directory is set. Run `amscan set-default <dir>`.';
+}

@@ -7,7 +7,9 @@ The command surface changed, hence the major bump.
 - `set-default <dir>` remembers where your API models live, so `--models` is
   no longer needed on every run. Machine-wide by default; `--project` writes a
   setting for one repo that wins over it.
-- Commands warn and ask before falling back to scanning the whole of `lib`.
+- `scan`, `remove` and `disable` require a models directory and exit 78 when
+  none is set. There is no fallback to scanning the whole of `lib`: it would
+  treat every class in the app as an API model.
 
 ### Removed
 

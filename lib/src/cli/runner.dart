@@ -34,6 +34,18 @@ Future<int> runCli(List<String> arguments) async {
     stderr.writeln('');
     stderr.writeln(e.usage);
     return 64;
+  } on ModelsDirectoryNotSet {
+    stderr.writeln('No models directory is set.');
+    stderr.writeln('');
+    stderr.writeln(
+      'Run this once, pointing at the folder that holds your API model '
+      'classes:',
+    );
+    stderr.writeln('  amscan set-default lib/server/response');
+    stderr.writeln('');
+    stderr.writeln('Add --project to set it for this project only, '
+        'or pass --models=<dir> for a single run.');
+    return 78;
   } on ModelsDirectoryNotFound catch (e) {
     stderr.writeln(e.toString());
     stderr.writeln(
@@ -91,60 +103,27 @@ abstract class _ModelCommand extends Command<int> {
   /// The directory being scanned. Only valid once [resolveModels] has run.
   String get modelsPath => _models!;
 
-  /// Everything under `lib` — the fallback when nothing has been configured.
-  static const _wholeLib = 'lib';
-
-  /// Works out which directory to scan, asking first if nothing is set.
+  /// Works out which directory to scan.
   ///
-  /// Returns false when the run should stop: either the user chose to go and
-  /// set a default, or there is no terminal to ask on. Scanning the whole of
-  /// `lib` is a big enough difference — slower, and it treats every class as
-  /// an API model — that it should never happen silently.
-  Future<bool> resolveModels() async {
+  /// Throws [ModelsDirectoryNotSet] when nothing is configured. There is
+  /// deliberately no fallback: scanning everything under `lib` would treat
+  /// every class in the app as an API model, and the fields it then reported
+  /// would be wrong in a way that is expensive to notice. Naming the
+  /// directory is a one-off, so requiring it costs less than guessing.
+  Future<void> resolveModels() async {
     if (argResults!.wasParsed('models')) {
       _models = p.normalize(
         p.join(projectRoot, argResults!['models'] as String),
       );
-      return true;
+      return;
     }
 
     final configured = ModelsConfig.resolve(projectRoot);
-    if (configured != null) {
-      _models = configured.absolute(projectRoot);
-      return true;
+    if (configured == null) {
+      throw const ModelsDirectoryNotSet();
     }
 
-    say('');
-    say('No models directory is set, so the whole `$_wholeLib` folder would '
-        'be scanned.');
-    say('That is slower, and it treats every class under it as an API model.');
-    say('');
-    say('Set one once with:');
-    say('  amscan set-default lib/server/response');
-    say('');
-
-    if (!canPrompt) {
-      stderr.writeln(
-        'No terminal to ask on. Run `amscan set-default <dir>`, '
-        'or pass --models=<dir> for this run.',
-      );
-      return false;
-    }
-
-    final choice = selectSingle('  Scan all of `$_wholeLib` this time?', [
-      'No — exit so I can set a default',
-      'Yes — scan all of `$_wholeLib`',
-    ]);
-
-    if (choice != 1) {
-      say('');
-      say('Nothing scanned.');
-      say('');
-      return false;
-    }
-
-    _models = p.normalize(p.join(projectRoot, _wholeLib));
-    return true;
+    _models = configured.absolute(projectRoot);
   }
 
   CacheStore get cache => CacheStore(projectRoot);
@@ -322,9 +301,7 @@ class ScanCommand extends _ModelCommand {
   Future<int> run() async {
     final shouldOpen = argResults!['open'] as bool;
 
-    if (!await resolveModels()) {
-      return 0;
-    }
+    await resolveModels();
 
     printHeader('API Model Field Scanner');
 
@@ -416,9 +393,7 @@ abstract class _MutatingCommand extends _ModelCommand {
 
   @override
   Future<int> run() async {
-    if (!await resolveModels()) {
-      return 0;
-    }
+    await resolveModels();
 
     printHeader(
       'API Model Field ${mode == EditMode.delete ? 'Remover' : 'Disabler'}',

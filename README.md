@@ -88,9 +88,9 @@ The project file sits in `.dart_tool/`, which Dart projects already ignore, so
 remembering a directory never dirties your working tree. `clear` leaves it
 alone — it is a setting, not a cached result.
 
-With nothing set, every command warns that it would scan the whole of `lib`
-and asks before doing it. That is slower and treats every class under `lib` as
-an API model, so it is never allowed to happen silently.
+With nothing set, those commands exit with code 78 and tell you what to run.
+`set-default`, `clear`, and `disable --undo` / `--remove` work regardless —
+the last two act on the disabled record, which already names its own files.
 
 ## The workflow
 
