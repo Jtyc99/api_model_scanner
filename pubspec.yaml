@@ -2,7 +2,7 @@ name: api_model_scanner
 description: >-
   A CLI that finds API model fields your Flutter/Dart app never uses, and
   removes them with AST-aware source edits.
-version: 2.0.0
+version: 1.0.0
 repository: https://github.com/JtycEdgeTech/api_model_scanner
 
 environment:
