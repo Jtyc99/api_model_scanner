@@ -17,6 +17,34 @@ import '../model.dart';
 Future<List<ModelField>> findModelFields({required String modelsPath}) async =>
     (await findModels(modelsPath: modelsPath)).fields;
 
+/// The `.dart` files named by [modelsPath], which may be a directory to walk
+/// or a single file.
+///
+/// Pointing at one file is useful while narrowing something down — it keeps a
+/// scan to seconds on a large project. Note that only that file is indexed, so
+/// a subclass elsewhere that forwards a removed field is not seen; the
+/// `dart analyze` safety net still catches the result.
+List<File> dartFilesAt(String modelsPath) {
+  final file = File(modelsPath);
+  if (file.existsSync()) {
+    if (!modelsPath.endsWith('.dart')) {
+      throw NotADartFile(modelsPath);
+    }
+    return [file];
+  }
+
+  final directory = Directory(modelsPath);
+  if (!directory.existsSync()) {
+    throw ModelsDirectoryNotFound(modelsPath);
+  }
+
+  return directory
+      .listSync(recursive: true)
+      .whereType<File>()
+      .where((entry) => entry.path.endsWith('.dart'))
+      .toList();
+}
+
 /// Everything discovered in the models directory.
 class DiscoveredModels {
   final List<ModelField> fields;
@@ -31,16 +59,7 @@ Future<DiscoveredModels> findModels({required String modelsPath}) async {
   final result = <ModelField>[];
   final classes = <ModelClass>[];
 
-  final directory = Directory(modelsPath);
-
-  if (!directory.existsSync()) {
-    throw ModelsDirectoryNotFound(modelsPath);
-  }
-
-  final files = directory
-      .listSync(recursive: true)
-      .whereType<File>()
-      .where((file) => file.path.endsWith('.dart'));
+  final files = dartFilesAt(modelsPath);
 
   for (final file in files) {
     final path = file.path;
@@ -247,18 +266,9 @@ class SubclassLink {
 Future<List<SubclassLink>> findSubclassLinks({
   required String modelsPath,
 }) async {
-  final directory = Directory(modelsPath);
-
-  if (!directory.existsSync()) {
-    throw ModelsDirectoryNotFound(modelsPath);
-  }
-
   final links = <SubclassLink>[];
 
-  final files = directory
-      .listSync(recursive: true)
-      .whereType<File>()
-      .where((file) => file.path.endsWith('.dart'));
+  final files = dartFilesAt(modelsPath);
 
   for (final file in files) {
     final content = await file.readAsString();
@@ -285,12 +295,22 @@ Future<List<SubclassLink>> findSubclassLinks({
   return links;
 }
 
-/// Thrown when the configured models directory does not exist.
+/// Thrown when the configured models path does not exist.
 class ModelsDirectoryNotFound implements Exception {
   final String path;
 
   ModelsDirectoryNotFound(this.path);
 
   @override
-  String toString() => 'Models directory does not exist: $path';
+  String toString() => 'No such directory or file: $path';
+}
+
+/// Thrown when the models path names a file that is not Dart source.
+class NotADartFile implements Exception {
+  final String path;
+
+  NotADartFile(this.path);
+
+  @override
+  String toString() => 'Not a Dart file: $path';
 }

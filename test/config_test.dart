@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:api_model_scanner/src/cli/config.dart';
+import 'package:api_model_scanner/src/scanning/model_discovery.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -56,5 +57,48 @@ void main() {
     expect(p.basename(path), 'config.json');
     expect(p.basename(p.dirname(path)), 'api_model_scanner');
     expect(p.isAbsolute(path), isTrue);
+  });
+
+  group('a models path may be a directory or one file', () {
+    File write(String relative, String content) {
+      final file = File(p.join(temp.path, relative));
+      file.parent.createSync(recursive: true);
+      file.writeAsStringSync(content);
+      return file;
+    }
+
+    test('a directory yields every .dart file under it', () {
+      write('models/a.dart', 'class A {}');
+      write('models/nested/b.dart', 'class B {}');
+      write('models/notes.txt', 'ignored');
+
+      final found = dartFilesAt(p.join(temp.path, 'models'));
+
+      expect(found.map((f) => p.basename(f.path)), unorderedEquals(['a.dart', 'b.dart']));
+    });
+
+    test('a single .dart file yields just that file', () {
+      final only = write('models/user_cover.dart', 'class UserCover {}');
+
+      final found = dartFilesAt(only.path);
+
+      expect(found.map((f) => f.path), [only.path]);
+    });
+
+    test('a file that is not Dart source is rejected clearly', () {
+      final notes = write('models/notes.txt', 'nope');
+
+      expect(
+        () => dartFilesAt(notes.path),
+        throwsA(isA<NotADartFile>()),
+      );
+    });
+
+    test('a path that does not exist is reported as missing', () {
+      expect(
+        () => dartFilesAt(p.join(temp.path, 'nowhere')),
+        throwsA(isA<ModelsDirectoryNotFound>()),
+      );
+    });
   });
 }

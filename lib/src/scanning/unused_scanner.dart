@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import '../lsp/dart_language_server.dart';
@@ -107,10 +108,10 @@ Future<UsageReport> analyzeUsage({
 
       onProgress?.call(i + 1, fields.length, field);
 
-      try {
-        // The field's own references, plus those of every public member that
-        // exposes it. A privately-stored field reached through a getter has no
-        // external references of its own, but is very much in use.
+      // The field's own references, plus those of every public member that
+      // exposes it. A privately-stored field reached through a getter has no
+      // external references of its own, but is very much in use.
+      Future<FieldUsage> inspect() async {
         var external = 0;
         var via = <String>[];
 
@@ -134,13 +135,26 @@ Future<UsageReport> analyzeUsage({
           }
         }
 
-        usages.add(
-          FieldUsage(
-            field: field,
-            externalReferences: external,
-            usedVia: via,
-          ),
+        return FieldUsage(
+          field: field,
+          externalReferences: external,
+          usedVia: via,
         );
+      }
+
+      try {
+        try {
+          usages.add(await inspect());
+        } on TimeoutException {
+          // The first request also pays for the server indexing the project,
+          // which on a large one can outlast the timeout. Indexing is done by
+          // now, so one retry almost always lands — and a field lost here is
+          // one that silently never reaches the report.
+          onStatus?.call(
+            'Timed out on ${field.className}.${field.fieldName} — retrying',
+          );
+          usages.add(await inspect());
+        }
       } catch (e) {
         usages.add(
           FieldUsage(field: field, externalReferences: 0, error: '$e'),

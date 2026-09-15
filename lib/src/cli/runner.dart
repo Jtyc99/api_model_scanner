@@ -53,6 +53,12 @@ Future<int> runCli(List<String> arguments) async {
       'or pass --models=<dir> for a single run.',
     );
     return 66;
+  } on NotADartFile catch (e) {
+    stderr.writeln(e.toString());
+    stderr.writeln(
+      'Pass a directory of model classes, or one `.dart` file.',
+    );
+    return 66;
   }
 }
 
@@ -90,8 +96,9 @@ abstract class _ModelCommand extends Command<int> {
   _ModelCommand() {
     argParser.addOption(
       'models',
-      help: 'Directory containing API model classes, relative to the project '
-          'root. Overrides the remembered default for this run.',
+      help: 'Directory of API model classes — or a single `.dart` file — '
+          'relative to the project root. Overrides the remembered default '
+          'for this run.',
       valueHelp: 'dir',
     );
   }
@@ -917,7 +924,8 @@ class SetDefaultCommand extends Command<int> {
       return 64;
     }
 
-    if (!Directory(p.join(projectRoot, relative)).existsSync()) {
+    final target = p.join(projectRoot, relative);
+    if (!Directory(target).existsSync() && !File(target).existsSync()) {
       // Not fatal for a machine-wide default — the point is other projects —
       // but silence here would hide a typo until the next scan.
       stderr.writeln('Warning: $relative does not exist in this project.');

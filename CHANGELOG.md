@@ -11,6 +11,9 @@ The command surface changed, hence the major bump.
   none is set. There is no fallback to scanning the whole of `lib`: it would
   treat every class in the app as an API model.
 
+- `--models` accepts a single `.dart` file as well as a directory, for
+  narrowing a scan down to one model.
+
 ### Removed
 
 - `--link-style`, `--json` and `--fail-on-unused`. The first threaded a
@@ -39,6 +42,10 @@ The command surface changed, hence the major bump.
 - Undoing a subset now holds back ranges shared with fields that are not
   selected, and says which ones to tick, instead of writing code that does not
   compile and reverting the whole run.
+
+- A reference lookup that times out is retried once. The first request also
+  pays for the analysis server indexing the project, which on a large one can
+  outlast the timeout — and a field lost there never reached the report.
 
 ### Changed
 

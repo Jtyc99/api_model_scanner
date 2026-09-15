@@ -79,6 +79,16 @@ amscan set-default lib/api/models --project
 A project setting wins over the machine-wide one, and `--models=<dir>` beats
 both for a single run.
 
+`--models` also accepts a single `.dart` file, which keeps a scan to seconds
+while you narrow something down:
+
+```bash
+amscan scan --models=lib/server/response/login/user_cover.dart
+```
+
+Only that file is indexed, so a subclass elsewhere forwarding a removed field
+is not seen — the safety net still catches the result.
+
 | Scope | Where it lives |
 |---|---|
 | Machine-wide | `$XDG_CONFIG_HOME/api_model_scanner/config.json`, else `~/.config/…` (`%APPDATA%` on Windows) |
