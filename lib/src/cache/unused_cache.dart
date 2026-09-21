@@ -203,7 +203,8 @@ class CacheStore {
       return Selection.empty;
     }
     try {
-      return parseSelection(file.readAsStringSync());
+      return parseSelection(file.readAsStringSync(),
+          projectRoot: projectRoot);
     } catch (_) {
       return Selection.empty;
     }

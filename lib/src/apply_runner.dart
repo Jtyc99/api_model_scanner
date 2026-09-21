@@ -162,8 +162,14 @@ Future<ApplySummary> applySelection({
         if (dot <= 0) {
           return false;
         }
+        // Conditions are recorded as `file|Class.field`.
+        final bar = key.indexOf('|');
+        if (bar <= 0 || dot < bar) {
+          return false;
+        }
         return selection.selectsWholeField(
-          key.substring(0, dot),
+          key.substring(0, bar),
+          key.substring(bar + 1, dot),
           key.substring(dot + 1),
         );
       });
@@ -173,7 +179,8 @@ Future<ApplySummary> applySelection({
       for (final className in fileEntry.value.keys)
         if (stillDead(className) &&
             fileEntry.value[className]!.every((f) =>
-                selection.selectsWholeField(className, f.fieldName)))
+                selection.selectsWholeField(
+                    filePath, className, f.fieldName)))
           className,
     };
 
@@ -221,7 +228,8 @@ Future<ApplySummary> applySelection({
       // would leave dangling `&&` / `^` operators.
       final wholeFields = <String>{
         for (final field in classEntry.value)
-          if (selection.selectsWholeField(className, field.fieldName))
+          if (selection.selectsWholeField(
+              filePath, className, field.fieldName))
             field.fieldName,
       };
 
@@ -244,7 +252,7 @@ Future<ApplySummary> applySelection({
 
       for (final field in classEntry.value) {
         final plan = _plan(original, filePath, className, field.fieldName);
-        final selected = selectedEdits(className, field.fieldName, plan, selection);
+        final selected = selectedEdits(filePath, className, field.fieldName, plan, selection);
 
         if (selected.isEmpty) {
           continue;
@@ -589,6 +597,7 @@ Future<ApplySummary> applySelection({
 /// Selecting the field declaration promotes the whole field: once the
 /// declaration is gone, nothing else may still reference it.
 List<Edit> selectedEdits(
+  String filePath,
   String className,
   String fieldName,
   List<Edit> plan,
@@ -598,13 +607,13 @@ List<Edit> selectedEdits(
     return const [];
   }
 
-  if (selection.selectsWholeField(className, fieldName)) {
+  if (selection.selectsWholeField(filePath, className, fieldName)) {
     return plan;
   }
 
   final indices = <int>[];
   for (var i = 0; i < plan.length; i++) {
-    if (selection.selectsPart(className, fieldName, i)) {
+    if (selection.selectsPart(filePath, className, fieldName, i)) {
       indices.add(i);
     }
   }

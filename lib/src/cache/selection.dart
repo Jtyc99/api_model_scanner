@@ -1,5 +1,9 @@
 import 'dart:convert';
 
+import 'package:path/path.dart' as p;
+
+import '../model.dart';
+
 /// What the user ticked in the report.
 ///
 /// Selection is deliberately action-agnostic: the report records *what* to act
@@ -8,13 +12,17 @@ class Selection {
   /// The top-level "select everything" box.
   final bool all;
 
-  /// Fully-selected classes, by class name.
+  /// Fully-selected classes, keyed `file|Class`.
+  ///
+  /// Qualified by file because class names are not unique across a models
+  /// tree: two endpoints each declaring a `Gift` is ordinary, and a tick on
+  /// one of them must not select the other's fields.
   final Set<String> classes;
 
-  /// Fully-selected fields, keyed `Class.field`.
+  /// Fully-selected fields, keyed `file|Class.field`.
   final Set<String> fields;
 
-  /// Individually selected parts, keyed `Class.field#index`.
+  /// Individually selected parts, keyed `file|Class.field#index`.
   final Set<String> parts;
 
   const Selection({
@@ -31,14 +39,19 @@ class Selection {
 
   bool get isNotEmpty => !isEmpty;
 
-  bool selectsWholeField(String className, String fieldName) =>
+  bool selectsWholeField(String filePath, String className, String fieldName) =>
       all ||
-      classes.contains(className) ||
-      fields.contains('$className.$fieldName');
+      classes.contains(classKey(filePath, className)) ||
+      fields.contains('${classKey(filePath, className)}.$fieldName');
 
-  bool selectsPart(String className, String fieldName, int index) =>
-      selectsWholeField(className, fieldName) ||
-      parts.contains('$className.$fieldName#$index');
+  bool selectsPart(
+    String filePath,
+    String className,
+    String fieldName,
+    int index,
+  ) =>
+      selectsWholeField(filePath, className, fieldName) ||
+      parts.contains('${classKey(filePath, className)}.$fieldName#$index');
 
   /// Total number of distinct things ticked, for reporting.
   int get markedCount =>
@@ -68,6 +81,10 @@ class _Patterns {
 
   /// `  - [x] `field declaration` [line 6](...)`  (indented)
   static final part = RegExp(r'^\s+-\s*\[([ xX])\]');
+
+  /// `└ [lib/server/response/gift.dart](../../lib/...)` — names the file the
+  /// block belongs to, and always precedes its checkboxes.
+  static final classFile = RegExp(r'^└\s*\[([^\]]+)\]');
 }
 
 bool _ticked(String box) => box.toLowerCase() == 'x';
@@ -75,22 +92,39 @@ bool _ticked(String box) => box.toLowerCase() == 'x';
 /// Parses a report's Markdown back into a [Selection].
 ///
 /// Only checkbox states are read; the surrounding text is treated as layout.
-Selection parseSelection(String markdown) {
+/// Parses a report's Markdown back into a [Selection].
+///
+/// [projectRoot] resolves the path each `## Class` block names, so two blocks
+/// with the same heading stay distinct. The renderer always prints that path
+/// before any checkbox, so the file is known by the time ticks are read.
+Selection parseSelection(String markdown, {required String projectRoot}) {
   var all = false;
   final classes = <String>{};
   final fields = <String>{};
   final parts = <String>{};
 
   String? currentClass;
+  String? currentFile;
   String? currentField;
   var partIndex = 0;
+
+  String? scope() => currentClass == null || currentFile == null
+      ? null
+      : classKey(currentFile, currentClass);
 
   for (final line in const LineSplitter().convert(markdown)) {
     final heading = _Patterns.heading.firstMatch(line);
     if (heading != null) {
       currentClass = heading.group(1)!.trim();
+      currentFile = null;
       currentField = null;
       partIndex = 0;
+      continue;
+    }
+
+    final path = _Patterns.classFile.firstMatch(line);
+    if (path != null) {
+      currentFile = p.normalize(p.join(projectRoot, path.group(1)!));
       continue;
     }
 
@@ -105,9 +139,10 @@ Selection parseSelection(String markdown) {
     // Indented items are parts of the field most recently seen.
     final part = _Patterns.part.firstMatch(line);
     if (part != null) {
-      if (currentClass != null && currentField != null) {
+      final scoped = scope();
+      if (scoped != null && currentField != null) {
         if (_ticked(part.group(1)!)) {
-          parts.add('$currentClass.$currentField#$partIndex');
+          parts.add('$scoped.$currentField#$partIndex');
         }
         partIndex++;
       }
@@ -117,9 +152,9 @@ Selection parseSelection(String markdown) {
     final classToggle = _Patterns.classToggle.firstMatch(line);
     if (classToggle != null) {
       // Trust the heading for the class name; the label is only decoration.
-      final name = currentClass ?? classToggle.group(2)!;
-      if (_ticked(classToggle.group(1)!)) {
-        classes.add(name);
+      final scoped = scope();
+      if (scoped != null && _ticked(classToggle.group(1)!)) {
+        classes.add(scoped);
       }
       currentField = null;
       partIndex = 0;
@@ -130,8 +165,9 @@ Selection parseSelection(String markdown) {
     if (field != null && currentClass != null) {
       currentField = field.group(2)!;
       partIndex = 0;
-      if (_ticked(field.group(1)!)) {
-        fields.add('$currentClass.$currentField');
+      final scoped = scope();
+      if (scoped != null && _ticked(field.group(1)!)) {
+        fields.add('$scoped.$currentField');
       }
       continue;
     }

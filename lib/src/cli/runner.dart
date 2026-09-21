@@ -319,7 +319,8 @@ abstract class _ModelCommand extends Command<int> {
               filePath: entry.key,
               start: edit.start,
               end: edit.end,
-              fieldKey: '${field.className}.${field.fieldName}',
+              fieldKey: '${classKey(entry.key, field.className)}'
+                  '.${field.fieldName}',
             ));
           }
         } catch (_) {
@@ -759,7 +760,8 @@ class DisableCommand extends _MutatingCommand {
     // ticked like any other row; `selectsWholeField` already covers the
     // class-level and select-everything boxes above it.
     final recorded = all
-        .where((f) => selection.selectsWholeField(f.className, f.fieldName))
+        .where((f) =>
+            selection.selectsWholeField(f.filePath, f.className, f.fieldName))
         .toList();
 
     if (recorded.isEmpty) {

@@ -163,7 +163,7 @@ void main() {
         .join('\n');
 
     test('an untouched report selects nothing', () {
-      final selection = parseSelection(store.renderReport(buildCache()));
+      final selection = parseSelection(store.renderReport(buildCache()), projectRoot: temp.path);
       expect(selection.isNotEmpty, isFalse);
     });
 
@@ -172,10 +172,10 @@ void main() {
           .renderReport(buildCache())
           .replaceFirst('- [ ] **`desktop`**', '- [x] **`desktop`**');
 
-      final selection = parseSelection(report);
+      final selection = parseSelection(report, projectRoot: temp.path);
 
-      expect(selection.selectsWholeField('HomeBanner', 'desktop'), isTrue);
-      expect(selection.selectsWholeField('HomeBanner', 'other'), isFalse);
+      expect(selection.selectsWholeField(modelPath, 'HomeBanner', 'desktop'), isTrue);
+      expect(selection.selectsWholeField(modelPath, 'HomeBanner', 'other'), isFalse);
     });
 
     test('a ticked class is read back as the whole class', () {
@@ -184,9 +184,9 @@ void main() {
           .replaceFirst("- [ ] **All of `HomeBanner`**",
               "- [x] **All of `HomeBanner`**");
 
-      final selection = parseSelection(report);
+      final selection = parseSelection(report, projectRoot: temp.path);
 
-      expect(selection.selectsWholeField('HomeBanner', 'desktop'), isTrue);
+      expect(selection.selectsWholeField(modelPath, 'HomeBanner', 'desktop'), isTrue);
     });
 
     test('an indented part is read back as that part alone', () {
@@ -197,14 +197,14 @@ void main() {
       expect(index, greaterThan(-1), reason: 'report should have part rows');
       lines[index] = lines[index].replaceFirst('[ ]', '[x]');
 
-      final selection = parseSelection(lines.join('\n'));
+      final selection = parseSelection(lines.join('\n'), projectRoot: temp.path);
 
-      expect(selection.selectsPart('HomeBanner', 'desktop', 0), isTrue);
-      expect(selection.selectsWholeField('HomeBanner', 'desktop'), isFalse);
+      expect(selection.selectsPart(modelPath, 'HomeBanner', 'desktop', 0), isTrue);
+      expect(selection.selectsWholeField(modelPath, 'HomeBanner', 'desktop'), isFalse);
     });
 
     test('ticking everything selects everything', () {
-      final selection = parseSelection(tickAll(store.renderReport(buildCache())));
+      final selection = parseSelection(tickAll(store.renderReport(buildCache())), projectRoot: temp.path);
       expect(selection.all, isTrue);
     });
   });
