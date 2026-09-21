@@ -101,13 +101,22 @@ class ModelsConfig {
 
   static void writeGlobal(String models) => _write(globalPath(), models);
 
+  /// Writes a global-shaped config to an explicit path. For tests.
+  static void writeGlobalTo(String path, String models) => _write(path, models);
+
   /// The models directory to use, or null when nothing is configured.
-  static ResolvedModels? resolve(String projectRoot) {
+  ///
+  /// [globalConfigPath] exists so tests can resolve against a temporary file
+  /// rather than whatever this machine happens to have set.
+  static ResolvedModels? resolve(
+    String projectRoot, {
+    String? globalConfigPath,
+  }) {
     final project = readProject(projectRoot);
     if (project != null) {
       return ResolvedModels(project, ModelsSource.project);
     }
-    final global = readGlobal();
+    final global = _read(globalConfigPath ?? globalPath());
     if (global != null) {
       return ResolvedModels(global, ModelsSource.global);
     }

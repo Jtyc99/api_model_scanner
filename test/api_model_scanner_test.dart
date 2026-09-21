@@ -30,6 +30,8 @@ class HomeBanner {
   final String? mobile;
 
   const HomeBanner({this.desktop, this.mobile});
+
+  Map<String, dynamic> toJson() => {'desktop': desktop, 'mobile': mobile};
 }
 ''');
 
@@ -48,6 +50,8 @@ class Config {
   final String? value;
 
   const Config({this.value});
+
+  Map<String, dynamic> toJson() => {'value': value};
 }
 ''');
 
@@ -57,8 +61,10 @@ class Config {
   });
 
   test('finds fields across nested directories and multiple classes', () async {
-    await writeModel('a.dart', 'class A { final int? x; A({this.x}); }');
-    await writeModel('nested/b.dart', 'class B { final int? y; B({this.y}); }');
+    await writeModel('a.dart',
+        'class A { final int? x; A({this.x}); Map toJson() => {}; }');
+    await writeModel('nested/b.dart',
+        'class B { final int? y; B({this.y}); Map toJson() => {}; }');
 
     final fields = await findModelFields(modelsPath: temp.path);
 
@@ -66,6 +72,87 @@ class Config {
       fields.map((f) => '${f.className}.${f.fieldName}').toSet(),
       {'A.x', 'B.y'},
     );
+  });
+
+  group('only serialized classes are treated as models', () {
+    test('a class with neither fromJson nor toJson is skipped', () async {
+      await writeModel('helper.dart', '''
+class Helper {
+  final String? label;
+  const Helper({this.label});
+}
+''');
+
+      final discovered = await findModels(modelsPath: temp.path);
+
+      expect(discovered.fields, isEmpty);
+      expect(discovered.classes, isEmpty);
+      expect(discovered.skipped, ['Helper']);
+    });
+
+    test('a `fromJson` factory alone qualifies', () async {
+      await writeModel('user.dart', '''
+class User {
+  final String? name;
+  const User({this.name});
+
+  factory User.fromJson(Map<String, dynamic> json) =>
+      User(name: json['name'] as String?);
+}
+''');
+
+      final discovered = await findModels(modelsPath: temp.path);
+
+      expect(discovered.fields.map((f) => f.fieldName), ['name']);
+      expect(discovered.skipped, isEmpty);
+    });
+
+    test('a subclass inherits the marker from a base in the same file',
+        () async {
+      // The alias-subclass shape: serialization lives on the base.
+      await writeModel('country.dart', '''
+class Country {
+  final String? id;
+  const Country({this.id});
+
+  Map<String, dynamic> toJson() => {'id': id};
+}
+
+class Currency extends Country {
+  final String? symbol;
+  const Currency({super.id, this.symbol});
+}
+''');
+
+      final discovered = await findModels(modelsPath: temp.path);
+
+      expect(
+        discovered.fields.map((f) => '${f.className}.${f.fieldName}').toSet(),
+        {'Country.id', 'Currency.symbol'},
+      );
+      expect(discovered.skipped, isEmpty);
+    });
+
+    test('model and non-model classes in one file are separated', () async {
+      await writeModel('mixed.dart', '''
+class Payload {
+  final String? body;
+  const Payload({this.body});
+
+  Map<String, dynamic> toJson() => {'body': body};
+}
+
+class Formatter {
+  final String? pattern;
+  const Formatter({this.pattern});
+}
+''');
+
+      final discovered = await findModels(modelsPath: temp.path);
+
+      expect(discovered.fields.map((f) => f.fieldName), ['body']);
+      expect(discovered.skipped, ['Formatter']);
+    });
   });
 
   test('missing models directory throws a typed error', () async {

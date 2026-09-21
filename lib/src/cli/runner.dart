@@ -159,6 +159,17 @@ abstract class _ModelCommand extends Command<int> {
     say('Found ${fields.length} model fields '
         'in ${discovered.classes.length} classes.');
 
+    // Worth saying out loud: a class without `fromJson`/`toJson` is not one
+    // this tool can reason about, and silently ignoring it would read as
+    // "nothing unused here".
+    if (discovered.skipped.isNotEmpty) {
+      final names = discovered.skipped.take(3).join(', ');
+      say('Skipped ${discovered.skipped.length} '
+          'class${discovered.skipped.length == 1 ? '' : 'es'} with no '
+          '`fromJson`/`toJson` ($names'
+          '${discovered.skipped.length > 3 ? ', …' : ''}).');
+    }
+
     final sink = stdout;
 
     // The in-place progress line only makes sense on a terminal; when piped

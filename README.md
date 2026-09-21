@@ -15,6 +15,49 @@ amscan scan                              # find them, tick what you want
 amscan remove                            # delete the ticked code
 ```
 
+## Read this before you run it
+
+**This tool deletes source code based on a judgement it cannot make with
+certainty. Use it at your own risk.**
+
+It answers one question — *does anything reference this field?* — and static
+analysis cannot answer that completely:
+
+- **Dynamic access is invisible.** A field reached through `json['x']`,
+  reflection, code generation, or a package you do not build from source looks
+  unreferenced. Removing it compiles cleanly and breaks at runtime.
+- **"Unused" is a claim about today's code.** A field nothing reads yet, but
+  that a half-finished feature or another team's branch expects, will be
+  reported.
+- **The safety net only catches compile errors.** `remove` and `disable` run
+  `dart analyze` and restore every file if an error appears — which catches a
+  great deal, but nothing that still compiles and behaves differently. A field
+  dropped from `toJson` changes the request body your server receives, and no
+  analyzer will say so.
+
+So: **commit or stash before running it, read the report rather than ticking
+everything, and test the app afterwards.** `amscan disable` exists for exactly
+this — comment the fields out, run the app, and `amscan disable --undo` if
+anything misbehaves. Prefer it to `remove` until you trust the results on your
+codebase.
+
+### Only serialized classes are scanned
+
+A class is treated as an API model only if it declares `fromJson` or `toJson`,
+or extends one in the same file that does. Everything else is skipped and
+counted in the scan output.
+
+This matters because the tool's reasoning does not generalise. For a
+serialized model, "nothing references this field" really does mean dead
+weight, because serialization keeps it alive regardless of who reads it. For
+an ordinary class the same silence can mean the field is reached through a
+mixin, a callback, a subclass elsewhere, or a positional constructor — and
+removing it is far more likely to be wrong.
+
+The cost is a false negative: a genuine model that happens to declare neither
+method is skipped, and its unused fields go unreported. If a class you expect
+to see is missing from the report, that is the first thing to check.
+
 ## Why not just grep
 
 `grep giftList` finds the declaration, the constructor, `fromJson`, `toJson`,
@@ -179,9 +222,11 @@ itself once nothing is.
 
 ## Caveats
 
-**Results are "potentially unused".** Anything reached dynamically —
-`json['x']`, reflection, a field read only by a package you do not build from
-source — is invisible to static analysis. Read the report before ticking.
+**Results are "potentially unused".** See the risks at the top of this file;
+they are the point, not a footnote.
+
+**Classes without `fromJson`/`toJson` are skipped**, so a model that declares
+neither goes unreported. The scan output counts them.
 
 **Generated files are not rewritten.** `*.g.dart` and freezed partials are left
 alone; regenerate them instead.

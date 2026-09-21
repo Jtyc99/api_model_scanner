@@ -13,6 +13,12 @@ The command surface changed, hence the major bump.
 
 - `--models` accepts a single `.dart` file as well as a directory, for
   narrowing a scan down to one model.
+- Only classes that declare `fromJson`/`toJson`, or extend one in the same
+  file that does, are treated as API models. The tool's reasoning — that
+  serialization keeps a field alive regardless of who reads it — does not hold
+  for an ordinary class, where the same absence of references can mean the
+  field is reached some way the analyzer resolves differently. Skipped classes
+  are counted in the scan output.
 
 ### Removed
 

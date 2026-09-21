@@ -50,7 +50,69 @@ class DiscoveredModels {
   final List<ModelField> fields;
   final List<ModelClass> classes;
 
-  const DiscoveredModels({required this.fields, required this.classes});
+  /// Classes that were parsed but not treated as API models, by name.
+  final List<String> skipped;
+
+  const DiscoveredModels({
+    required this.fields,
+    required this.classes,
+    this.skipped = const [],
+  });
+}
+
+/// Whether [declaration] looks like a serialized API model.
+///
+/// The whole premise of this tool is that `fromJson`/`toJson` keep a field
+/// alive no matter who reads it, so "nothing references this" means the field
+/// is dead weight. That reasoning does not hold for an ordinary class, where
+/// the same absence of references can mean the field is written and read
+/// through a path the analyzer resolves differently — a mixin, a callback, a
+/// subclass in another package. Scanning those produced confident,
+/// wrong answers, so a class has to earn its way in.
+///
+/// A class qualifies by declaring `fromJson` or `toJson`, or by extending one
+/// that does within the same file — the alias-subclass shape, where the
+/// serialization lives on the base.
+Set<String> _modelClassesIn(CompilationUnit unit) {
+  final classes = unit.declarations.whereType<ClassDeclaration>().toList();
+
+  bool declaresSerialization(ClassDeclaration declaration) {
+    for (final member in declaration.body.members) {
+      if (member is MethodDeclaration &&
+          (member.name.lexeme == 'toJson' || member.name.lexeme == 'fromJson')) {
+        return true;
+      }
+      // `factory Foo.fromJson(...)` is a constructor, not a method.
+      if (member is ConstructorDeclaration &&
+          member.name?.lexeme == 'fromJson') {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  final qualifying = <String>{
+    for (final declaration in classes)
+      if (declaresSerialization(declaration))
+        declaration.namePart.typeName.lexeme,
+  };
+
+  // A subclass inherits the marker from a base declared alongside it.
+  var growing = true;
+  while (growing) {
+    growing = false;
+    for (final declaration in classes) {
+      final superName = declaration.extendsClause?.superclass.name.lexeme;
+      if (superName == null || !qualifying.contains(superName)) {
+        continue;
+      }
+      if (qualifying.add(declaration.namePart.typeName.lexeme)) {
+        growing = true;
+      }
+    }
+  }
+
+  return qualifying;
 }
 
 /// Parses every `.dart` file under [modelsPath], returning both the instance
@@ -58,6 +120,7 @@ class DiscoveredModels {
 Future<DiscoveredModels> findModels({required String modelsPath}) async {
   final result = <ModelField>[];
   final classes = <ModelClass>[];
+  final skipped = <String>[];
 
   final files = dartFilesAt(modelsPath);
 
@@ -69,6 +132,7 @@ Future<DiscoveredModels> findModels({required String modelsPath}) async {
     final parseResult = parseString(content: content, path: path);
 
     final unit = parseResult.unit;
+    final models = _modelClassesIn(unit);
 
     for (final declaration in unit.declarations) {
       if (declaration is! ClassDeclaration) {
@@ -76,6 +140,11 @@ Future<DiscoveredModels> findModels({required String modelsPath}) async {
       }
 
       final className = declaration.namePart.typeName.lexeme;
+
+      if (!models.contains(className)) {
+        skipped.add(className);
+        continue;
+      }
 
       final accessors = _publicAccessors(declaration, parseResult.lineInfo);
 
@@ -134,7 +203,11 @@ Future<DiscoveredModels> findModels({required String modelsPath}) async {
     }
   }
 
-  return DiscoveredModels(fields: result, classes: classes);
+  return DiscoveredModels(
+    fields: result,
+    classes: classes,
+    skipped: skipped,
+  );
 }
 
 /// Every named type mentioned by a type annotation, including type arguments

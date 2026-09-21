@@ -11,16 +11,47 @@ void main() {
   setUp(() => temp = Directory.systemTemp.createTempSync('amscan_cfg'));
   tearDown(() => temp.deleteSync(recursive: true));
 
+  // A global path guaranteed not to exist, so these never depend on whatever
+  // this machine happens to have set.
+  String noGlobal() => p.join(temp.path, 'absent', 'config.json');
+
   test('nothing configured resolves to null', () {
     expect(ModelsConfig.readProject(temp.path), isNull);
-    expect(ModelsConfig.resolve(temp.path), isNull);
+    expect(
+      ModelsConfig.resolve(temp.path, globalConfigPath: noGlobal()),
+      isNull,
+    );
+  });
+
+  test('the global setting is the fallback when no project one exists', () {
+    final global = p.join(temp.path, 'global', 'config.json');
+    ModelsConfig.writeGlobalTo(global, 'lib/models');
+
+    final resolved =
+        ModelsConfig.resolve(temp.path, globalConfigPath: global)!;
+
+    expect(resolved.relative, 'lib/models');
+    expect(resolved.source, ModelsSource.global);
+  });
+
+  test('a project setting wins over the global one', () {
+    final global = p.join(temp.path, 'global', 'config.json');
+    ModelsConfig.writeGlobalTo(global, 'lib/global');
+    ModelsConfig.writeProject(temp.path, 'lib/project');
+
+    final resolved =
+        ModelsConfig.resolve(temp.path, globalConfigPath: global)!;
+
+    expect(resolved.relative, 'lib/project');
+    expect(resolved.source, ModelsSource.project);
   });
 
   test('a project setting is read back', () {
     ModelsConfig.writeProject(temp.path, 'lib/server/response');
     expect(ModelsConfig.readProject(temp.path), 'lib/server/response');
 
-    final resolved = ModelsConfig.resolve(temp.path)!;
+    final resolved =
+        ModelsConfig.resolve(temp.path, globalConfigPath: noGlobal())!;
     expect(resolved.relative, 'lib/server/response');
     expect(resolved.source, ModelsSource.project);
     expect(
