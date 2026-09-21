@@ -439,7 +439,9 @@ abstract class _MutatingCommand extends _ModelCommand {
       ..addFlag(
         'format',
         defaultsTo: true,
-        help: 'Run `dart format` on the files that were modified.',
+        help: 'Run `dart format` on the files that were modified. Skipped '
+            'while any code is commented out, since formatting around a '
+            'comment can drop a separator that `--undo` needs.',
       )
       ..addFlag(
         'force',
@@ -918,7 +920,9 @@ class DisableCommand extends _MutatingCommand {
       return 1;
     }
 
-    if (argResults!['format'] as bool) {
+    // Only once nothing is commented out anywhere: formatting around a
+    // surviving comment can remove a separator that its undo still needs.
+    if ((argResults!['format'] as bool) && !store.exists) {
       await Process.run(
         'dart',
         ['format', ...changed],

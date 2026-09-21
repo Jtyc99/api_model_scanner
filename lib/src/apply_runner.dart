@@ -567,7 +567,13 @@ Future<ApplySummary> applySelection({
     }
   }
 
-  if (runFormat) {
+  // Never after commenting code out. `dart format` rewrites the code *around*
+  // a comment, and a separator it removes is one the undo cannot put back:
+  // `Ranking({a, b, /*c, d*/})` joins to one line and loses the comma before
+  // the comment, so restoring `c, d` yields `b c, d` — a syntax error. This is
+  // the same reason `disable` tidies no imports and deletes no files: while
+  // code is commented out, everything around it has to stay exactly as it is.
+  if (runFormat && mode == EditMode.delete) {
     final result = await Process.run(
       'dart',
       ['format', ...cleanedFiles],
