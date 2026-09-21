@@ -154,6 +154,11 @@ with GFM task lists — click the checkboxes in your editor's preview, or type
 `x`. Tick a field to take it whole, or tick individual parts to take only
 those.
 
+There is also a **VS Code editor** that renders the report as a real table
+with checkbox cells, restricts editing to the checkboxes, and jumps to source
+on click — see [editors/vscode](editors/vscode). It writes to the same
+Markdown file, so nothing depends on it being installed.
+
 Checkboxes are list items rather than table cells on purpose: GFM only makes
 them interactive inside lists, in every mainstream preview. Toggling one in
 Android Studio / IntelliJ writes `[x]` straight back to the file, which is all
