@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 
-import { parseReport, toggleBox, type Report } from './report';
+import { desiredStates, parseReport, setBox, type Report } from './report';
 import { renderHtml } from './webview';
 
 export function activate(context: vscode.ExtensionContext): void {
@@ -13,8 +13,7 @@ export function deactivate(): void {
 
 /** Messages the webview sends back. */
 type Incoming =
-  | { type: 'toggle'; line: number }
-  | { type: 'setAll'; lines: number[]; checked: boolean }
+  | { type: 'set'; line: number; checked: boolean }
   | { type: 'open'; file: string; line?: number }
   | { type: 'openAsText' };
 
@@ -66,11 +65,8 @@ class ReportEditorProvider implements vscode.CustomTextEditorProvider {
 
     panel.webview.onDidReceiveMessage(async (message: Incoming) => {
       switch (message.type) {
-        case 'toggle':
-          await this.applyToggles(document, [message.line]);
-          return;
-        case 'setAll':
-          await this.applyToggles(document, message.lines, message.checked);
+        case 'set':
+          await this.applyCascade(document, message.line, message.checked);
           return;
         case 'open':
           await openSource(message.file, message.line);
@@ -89,29 +85,28 @@ class ReportEditorProvider implements vscode.CustomTextEditorProvider {
   }
 
   /**
-   * Flips the boxes on [lines] in one edit.
+   * Sets the box on [line], and every box the cascade moves with it.
    *
-   * Batched so a "tick everything" is a single undo step, and computed against
-   * one snapshot so the line numbers cannot shift underneath it — each edit
-   * replaces exactly one character, which keeps every offset stable.
+   * Applied as one `WorkspaceEdit` so ticking a class is a single undo step,
+   * and computed against one snapshot so line numbers cannot shift underneath
+   * it — each edit replaces exactly one character, which keeps every offset
+   * stable no matter how many boxes move.
    */
-  private async applyToggles(
+  private async applyCascade(
     document: vscode.TextDocument,
-    lines: number[],
-    checked?: boolean,
+    line: number,
+    checked: boolean,
   ): Promise<void> {
     const text = document.getText();
+    const wanted = desiredStates(parseReport(text), line, checked);
+
     const edit = new vscode.WorkspaceEdit();
     let touched = 0;
 
-    for (const line of lines) {
-      const box = toggleBox(text, line);
+    for (const [at, state] of wanted) {
+      const box = setBox(text, at, state);
       if (!box) {
-        continue;
-      }
-      // For a bulk set, skip boxes already in the wanted state.
-      if (checked !== undefined && box.replacement !== (checked ? 'x' : ' ')) {
-        continue;
+        continue; // Already in the wanted state; nothing to write.
       }
       edit.replace(
         document.uri,

@@ -183,27 +183,175 @@ export interface BoxEdit {
  * CLI can keep parsing a file the webview has written to.
  */
 export function toggleBox(text: string, line: number): BoxEdit | undefined {
+  const current = readBox(text, line);
+  if (current === undefined) {
+    return undefined;
+  }
+  return setBox(text, line, !current);
+}
+
+/** Whether the box on [line] is ticked, or undefined when there is none. */
+export function readBox(text: string, line: number): boolean | undefined {
   const lines = text.split('\n');
   if (line < 0 || line >= lines.length) {
     return undefined;
   }
-
   const source = lines[line];
   const open = source.indexOf('[');
   if (open === -1 || source.length < open + 3 || source[open + 2] !== ']') {
     return undefined;
   }
+  const value = source[open + 1];
+  if (value === ' ') {
+    return false;
+  }
+  if (value.toLowerCase() === 'x') {
+    return true;
+  }
+  return undefined;
+}
 
-  const current = source[open + 1];
-  if (current !== ' ' && current.toLowerCase() !== 'x') {
+/**
+ * The edit that puts the box on [line] into [checked], or undefined when it is
+ * already there — so a cascade only writes what actually moves.
+ */
+export function setBox(
+  text: string,
+  line: number,
+  checked: boolean,
+): BoxEdit | undefined {
+  const current = readBox(text, line);
+  if (current === undefined || current === checked) {
     return undefined;
   }
 
-  return {
-    line,
-    column: open + 1,
-    replacement: current === ' ' ? 'x' : ' ',
+  const open = text.split('\n')[line].indexOf('[');
+  return { line, column: open + 1, replacement: checked ? 'x' : ' ' };
+}
+
+/** Which row a box belongs to, and where it sits in the tree. */
+export interface Located {
+  kind: 'all' | 'class' | 'field' | 'part';
+  classIndex?: number;
+  fieldIndex?: number;
+}
+
+/** Finds the box on [line], or undefined when that line holds none. */
+export function locate(report: Report, line: number): Located | undefined {
+  if (report.selectAll?.line === line) {
+    return { kind: 'all' };
+  }
+  for (let c = 0; c < report.classes.length; c++) {
+    const block = report.classes[c];
+    if (block.column >= 0 && block.line === line) {
+      return { kind: 'class', classIndex: c };
+    }
+    for (let f = 0; f < block.fields.length; f++) {
+      const field = block.fields[f];
+      if (field.line === line) {
+        return { kind: 'field', classIndex: c, fieldIndex: f };
+      }
+      if (field.parts.some((part) => part.line === line)) {
+        return { kind: 'part', classIndex: c, fieldIndex: f };
+      }
+    }
+  }
+  return undefined;
+}
+
+/**
+ * The state every box should hold after setting the one on [line].
+ *
+ * Two rules, and the second follows from the first:
+ *
+ *   * Setting a box sets everything under it — tick a field and its parts go
+ *     with it, because selecting a field means selecting all of it.
+ *   * A parent is ticked exactly when all of its children are. So unticking
+ *     one part unticks its field, its class and Select Everything, and
+ *     ticking the last outstanding part ticks them all back.
+ *
+ * Deriving the parent rather than storing it is what makes the two consistent
+ * by construction: there is no state in which a field is ticked while one of
+ * its parts is not.
+ */
+export function desiredStates(
+  report: Report,
+  line: number,
+  checked: boolean,
+): Map<number, boolean> {
+  const target = locate(report, line);
+  if (!target) {
+    return new Map();
+  }
+
+  const state = new Map<number, boolean>();
+  for (const box of allBoxes(report)) {
+    state.set(box.line, box.checked);
+  }
+
+  const setField = (field: Field) => {
+    state.set(field.line, checked);
+    for (const part of field.parts) {
+      state.set(part.line, checked);
+    }
   };
+
+  const setClass = (block: ClassBlock) => {
+    if (block.column >= 0) {
+      state.set(block.line, checked);
+    }
+    block.fields.forEach(setField);
+  };
+
+  switch (target.kind) {
+    case 'all':
+      if (report.selectAll) {
+        state.set(report.selectAll.line, checked);
+      }
+      report.classes.forEach(setClass);
+      break;
+    case 'class':
+      setClass(report.classes[target.classIndex!]);
+      break;
+    case 'field':
+      setField(report.classes[target.classIndex!].fields[target.fieldIndex!]);
+      break;
+    case 'part':
+      state.set(line, checked);
+      break;
+  }
+
+  // Now settle every parent from the bottom up. A field with no parts of its
+  // own — one whose declaration could not be found — keeps whatever it was
+  // given, since there is nothing beneath it to derive from.
+  for (const block of report.classes) {
+    for (const field of block.fields) {
+      if (field.parts.length > 0) {
+        state.set(
+          field.line,
+          field.parts.every((part) => state.get(part.line) === true),
+        );
+      }
+    }
+    if (block.column >= 0 && block.fields.length > 0) {
+      state.set(
+        block.line,
+        block.fields.every((field) => state.get(field.line) === true),
+      );
+    }
+  }
+
+  if (report.selectAll) {
+    const tickable = report.classes.filter((block) => block.column >= 0);
+    if (tickable.length > 0) {
+      state.set(
+        report.selectAll.line,
+        tickable.every((block) => state.get(block.line) === true),
+      );
+    }
+  }
+
+  return state;
 }
 
 /** Every box the report declares, for select-all style operations. */

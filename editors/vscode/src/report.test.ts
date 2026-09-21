@@ -1,7 +1,14 @@
 import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
 
-import { allBoxes, parseReport, toggleBox } from './report';
+import {
+  allBoxes,
+  desiredStates,
+  parseReport,
+  readBox,
+  setBox,
+  toggleBox,
+} from './report';
 
 /**
  * Byte-for-byte the shape `ReportRenderer` emits, including the padded labels
@@ -198,4 +205,173 @@ test('the disabled record parses with the same shapes', () => {
   assert.equal(report.classes[0].fields[0].name, 'rankEnName');
   // Snippet lines carry no checkbox, so they are not selectable parts.
   assert.equal(report.classes[0].fields[0].parts.length, 0);
+});
+
+/** Two classes, so cascades can be checked for leaking sideways. */
+const TREE = [
+  '# Unused API model fields',
+  '',
+  '- [ ] **SELECT EVERYTHING**',
+  '',
+  '## HomeAnnouncement',
+  '',
+  '- [ ] **All of `HomeAnnouncement`**',
+  '',
+  '- [ ] **`id`** · 2 parts',
+  '  - [ ] `field declaration`',
+  '  - [ ] `map entry`',
+  '',
+  '- [ ] **`endDate`** · 1 part',
+  '  - [ ] `field declaration`',
+  '',
+  '## Image',
+  '',
+  '- [ ] **All of `Image`**',
+  '',
+  '- [ ] **`desktop`** · 1 part',
+  '  - [ ] `field declaration`',
+  '',
+].join('\n');
+
+const AT = {
+  all: 2,
+  homeClass: 6,
+  id: 8,
+  idDecl: 9,
+  idMap: 10,
+  endDate: 12,
+  endDateDecl: 13,
+  imageClass: 17,
+  desktop: 19,
+  desktopDecl: 20,
+};
+
+/** Applies a cascade to the text, the way the extension does. */
+function apply(text: string, line: number, checked: boolean): string {
+  const states = desiredStates(parseReport(text), line, checked);
+  const lines = text.split('\n');
+  for (const [at, want] of states) {
+    const edit = setBox(lines.join('\n'), at, want);
+    if (edit) {
+      lines[at] =
+        lines[at].slice(0, edit.column) +
+        edit.replacement +
+        lines[at].slice(edit.column + 1);
+    }
+  }
+  return lines.join('\n');
+}
+
+const state = (text: string, line: number) => readBox(text, line);
+
+test('cascade: ticking Select All ticks everything', () => {
+  const out = apply(TREE, AT.all, true);
+  for (const line of Object.values(AT)) {
+    assert.equal(state(out, line), true, `line ${line} should be ticked`);
+  }
+});
+
+test('cascade: ticking a class ticks its fields and parts only', () => {
+  const out = apply(TREE, AT.homeClass, true);
+
+  assert.equal(state(out, AT.homeClass), true);
+  assert.equal(state(out, AT.id), true);
+  assert.equal(state(out, AT.idDecl), true);
+  assert.equal(state(out, AT.idMap), true);
+  assert.equal(state(out, AT.endDate), true);
+  assert.equal(state(out, AT.endDateDecl), true);
+
+  // The other class is untouched, and so Select All stays off.
+  assert.equal(state(out, AT.imageClass), false);
+  assert.equal(state(out, AT.desktop), false);
+  assert.equal(state(out, AT.all), false);
+});
+
+test('cascade: ticking a field ticks its parts', () => {
+  const out = apply(TREE, AT.id, true);
+
+  assert.equal(state(out, AT.id), true);
+  assert.equal(state(out, AT.idDecl), true);
+  assert.equal(state(out, AT.idMap), true);
+  // Its sibling is untouched, so the class is not yet complete.
+  assert.equal(state(out, AT.endDate), false);
+  assert.equal(state(out, AT.homeClass), false);
+});
+
+test('cascade: a parent ticks only once every child is ticked', () => {
+  let out = apply(TREE, AT.idDecl, true);
+  assert.equal(state(out, AT.id), false, 'one of two parts is not enough');
+
+  out = apply(out, AT.idMap, true);
+  assert.equal(state(out, AT.id), true, 'both parts ticks the field');
+  assert.equal(state(out, AT.homeClass), false, 'endDate is still outstanding');
+
+  out = apply(out, AT.endDateDecl, true);
+  assert.equal(state(out, AT.endDate), true);
+  assert.equal(state(out, AT.homeClass), true, 'every field is now ticked');
+  assert.equal(state(out, AT.all), false, 'Image is still outstanding');
+
+  out = apply(out, AT.desktopDecl, true);
+  assert.equal(state(out, AT.all), true, 'everything is ticked');
+});
+
+test('cascade: unticking a part unticks every ancestor', () => {
+  const full = apply(TREE, AT.all, true);
+  const out = apply(full, AT.idDecl, false);
+
+  assert.equal(state(out, AT.idDecl), false);
+  assert.equal(state(out, AT.id), false, 'the field is no longer whole');
+  assert.equal(state(out, AT.homeClass), false, 'nor is the class');
+  assert.equal(state(out, AT.all), false, 'nor is everything');
+
+  // Only that one part moved; its siblings keep their state.
+  assert.equal(state(out, AT.idMap), true);
+  assert.equal(state(out, AT.endDate), true);
+  assert.equal(state(out, AT.desktop), true);
+});
+
+test('cascade: unticking a field unticks its parts', () => {
+  const full = apply(TREE, AT.all, true);
+  const out = apply(full, AT.id, false);
+
+  assert.equal(state(out, AT.idDecl), false);
+  assert.equal(state(out, AT.idMap), false);
+  assert.equal(state(out, AT.endDate), true, 'the sibling field is untouched');
+  assert.equal(state(out, AT.homeClass), false);
+});
+
+test('cascade: unticking a class unticks everything under it', () => {
+  const full = apply(TREE, AT.all, true);
+  const out = apply(full, AT.homeClass, false);
+
+  for (const line of [AT.id, AT.idDecl, AT.idMap, AT.endDate, AT.endDateDecl]) {
+    assert.equal(state(out, line), false, `line ${line} should have cleared`);
+  }
+  assert.equal(state(out, AT.desktop), true, 'the other class survives');
+});
+
+test('cascade: unticking Select All clears the whole report', () => {
+  const full = apply(TREE, AT.all, true);
+  const out = apply(full, AT.all, false);
+
+  for (const line of Object.values(AT)) {
+    assert.equal(state(out, line), false, `line ${line} should have cleared`);
+  }
+});
+
+test('cascade: a partially ticked parent reads as plainly unticked', () => {
+  const out = apply(TREE, AT.idDecl, true);
+  // No third state: the parent is simply false while a child is outstanding.
+  assert.equal(state(out, AT.id), false);
+  assert.equal(parseReport(out).classes[0].fields[0].checked, false);
+});
+
+test('cascade: a click on a line with no box changes nothing', () => {
+  assert.equal(desiredStates(parseReport(TREE), 0, true).size, 0);
+  assert.equal(apply(TREE, 0, true), TREE);
+});
+
+test('cascade: re-setting a box that is already right writes nothing', () => {
+  assert.equal(setBox(TREE, AT.id, false), undefined);
+  assert.equal(apply(TREE, AT.id, false), TREE);
 });
