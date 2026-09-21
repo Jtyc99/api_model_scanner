@@ -6,6 +6,7 @@ import 'cache/disabled_store.dart';
 import 'cleanup.dart';
 import 'cache/selection.dart';
 import 'cache/unused_cache.dart';
+import 'model.dart';
 import 'model_field_fixer.dart';
 import 'scanning/model_discovery.dart';
 
@@ -150,7 +151,9 @@ Future<ApplySummary> applySelection({
     // in a file this run may not otherwise touch, so verification could miss
     // it entirely.
     bool stillDead(String className) {
-      final conditions = deadClasses[className];
+      // Keyed by file as well as name: two endpoints may each declare a
+      // `Gift`, and only one of them is the one being judged here.
+      final conditions = deadClasses[classKey(filePath, className)];
       if (conditions == null) {
         return false;
       }

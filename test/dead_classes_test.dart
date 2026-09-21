@@ -58,7 +58,7 @@ void main() {
       classReferences: {'Job': const []},
       fieldRemovals: const [],
     );
-    expect(dead.keys.toSet(), {'Job'});
+    expect(dead.keys.toSet(), {classKey(_jobFile, 'Job')});
   });
 
   test('a class still named from live code survives', () {
@@ -67,7 +67,7 @@ void main() {
       classes: [job],
       unusedFieldKeys: {'Job.title', 'Job.salary'},
       classReferences: {
-        'Job': const [
+        classKey(_jobFile, 'Job'): const [
           ClassReference(filePath: '/lib/api_service.dart', offset: 500),
         ],
       },
@@ -82,11 +82,11 @@ void main() {
       classes: [person, job],
       unusedFieldKeys: {'Job.title', 'Job.salary'},
       classReferences: {
-        'Job': const [ClassReference(filePath: _personFile, offset: 45)],
+        classKey(_jobFile, 'Job'): const [ClassReference(filePath: _personFile, offset: 45)],
       },
       fieldRemovals: const [_jobFieldInPerson],
     );
-    expect(dead.keys.toSet(), {'Job'});
+    expect(dead.keys.toSet(), {classKey(_jobFile, 'Job')});
   });
 
   test('deadness cascades through a chain of classes', () {
@@ -99,13 +99,14 @@ void main() {
         'Salary.amount',
       },
       classReferences: {
-        'Job': const [ClassReference(filePath: _personFile, offset: 45)],
+        classKey(_jobFile, 'Job'): const [ClassReference(filePath: _personFile, offset: 45)],
         // Salary is only named from inside Job, which itself dies.
-        'Salary': const [ClassReference(filePath: _jobFile, offset: 45)],
+        classKey(_salaryFile, 'Salary'): const [ClassReference(filePath: _jobFile, offset: 45)],
       },
       fieldRemovals: const [_jobFieldInPerson, _salaryFieldInJob],
     );
-    expect(dead.keys.toSet(), {'Job', 'Salary'});
+    expect(dead.keys.toSet(),
+        {classKey(_jobFile, 'Job'), classKey(_salaryFile, 'Salary')});
   });
 
   test('a live leaf stops the cascade', () {
@@ -115,15 +116,15 @@ void main() {
       classes: [person, job, salary],
       unusedFieldKeys: {'Job.title', 'Job.salary'},
       classReferences: {
-        'Job': const [ClassReference(filePath: _personFile, offset: 45)],
-        'Salary': const [
+        classKey(_jobFile, 'Job'): const [ClassReference(filePath: _personFile, offset: 45)],
+        classKey(_salaryFile, 'Salary'): const [
           ClassReference(filePath: '/lib/pay_page.dart', offset: 10),
         ],
       },
       fieldRemovals: const [_jobFieldInPerson],
     );
-    expect(dead.keys.toSet(), {'Job'});
-    expect(dead.containsKey('Salary'), isFalse);
+    expect(dead.keys.toSet(), {classKey(_jobFile, 'Job')});
+    expect(dead.containsKey(classKey(_salaryFile, 'Salary')), isFalse);
   });
 
   test('a verdict records the field it depends on', () {
@@ -135,13 +136,13 @@ void main() {
       classes: [job],
       unusedFieldKeys: {'Job.title', 'Job.salary'},
       classReferences: {
-        'Job': const [ClassReference(filePath: _personFile, offset: 45)],
+        classKey(_jobFile, 'Job'): const [ClassReference(filePath: _personFile, offset: 45)],
       },
       fieldRemovals: const [_jobFieldInPerson],
     );
 
-    expect(dead.keys.toSet(), {'Job'});
-    expect(dead['Job'], {'Person.job'});
+    expect(dead.keys.toSet(), {classKey(_jobFile, 'Job')});
+    expect(dead[classKey(_jobFile, 'Job')], {'Person.job'});
   });
 
   test('a cascade inherits the conditions of the class above it', () {
@@ -151,14 +152,55 @@ void main() {
       classes: [job, salary],
       unusedFieldKeys: {'Job.title', 'Job.salary', 'Salary.amount'},
       classReferences: {
-        'Job': const [ClassReference(filePath: _personFile, offset: 45)],
-        'Salary': const [ClassReference(filePath: _jobFile, offset: 45)],
+        classKey(_jobFile, 'Job'): const [ClassReference(filePath: _personFile, offset: 45)],
+        classKey(_salaryFile, 'Salary'): const [ClassReference(filePath: _jobFile, offset: 45)],
       },
       fieldRemovals: const [_jobFieldInPerson, _salaryFieldInJob],
     );
 
-    expect(dead.keys.toSet(), {'Job', 'Salary'});
-    expect(dead['Salary'], contains('Job.salary'));
+    expect(dead.keys.toSet(),
+        {classKey(_jobFile, 'Job'), classKey(_salaryFile, 'Salary')});
+    expect(dead[classKey(_salaryFile, 'Salary')], contains('Job.salary'));
+  });
+
+  test('two classes sharing a name are judged separately', () {
+    // A models tree routinely has more than one `Gift` — one per endpoint.
+    // Keyed by name alone, their references merge and the live one is taken
+    // along with the dead one.
+    const otherFile = '/models/other/job.dart';
+    final otherJob = ModelClass(
+      className: 'Job',
+      filePath: otherFile,
+      line: 0,
+      column: 6,
+      offset: 0,
+      end: 100,
+      fieldNames: const ['title', 'salary'],
+      fieldTypes: const {},
+    );
+
+    final dead = resolveDeadClasses(
+      classes: [job, otherJob],
+      unusedFieldKeys: {'Job.title', 'Job.salary'},
+      classReferences: {
+        // The first is only named from a field that is going.
+        classKey(_jobFile, 'Job'): const [
+          ClassReference(filePath: _personFile, offset: 45),
+        ],
+        // The second is named from live application code.
+        classKey(otherFile, 'Job'): const [
+          ClassReference(filePath: '/lib/ui/page.dart', offset: 10),
+        ],
+      },
+      fieldRemovals: const [_jobFieldInPerson],
+    );
+
+    expect(dead.keys.toSet(), {classKey(_jobFile, 'Job')});
+    expect(
+      dead.containsKey(classKey(otherFile, 'Job')),
+      isFalse,
+      reason: 'the one still named from live code must survive',
+    );
   });
 
   test('a class with a surviving field is never dead', () {
@@ -177,11 +219,11 @@ void main() {
       classes: [job],
       unusedFieldKeys: {'Job.title', 'Job.salary'},
       classReferences: {
-        'Job': const [ClassReference(filePath: _jobFile, offset: 30)],
+        classKey(_jobFile, 'Job'): const [ClassReference(filePath: _jobFile, offset: 30)],
       },
       fieldRemovals: const [],
     );
-    expect(dead.keys.toSet(), {'Job'});
+    expect(dead.keys.toSet(), {classKey(_jobFile, 'Job')});
   });
 
   test('a class with no fields is never considered dead', () {

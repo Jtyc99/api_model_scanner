@@ -269,7 +269,8 @@ abstract class _ModelCommand extends Command<int> {
 
     if (deadClasses.isNotEmpty) {
       say('${deadClasses.length} class${deadClasses.length == 1 ? '' : 'es'} '
-          'dead outright: ${deadClasses.keys.join(', ')}');
+          'dead outright: '
+          '${deadClasses.keys.map((k) => k.split('|').last).join(', ')}');
     }
 
     final result = UnusedCache(

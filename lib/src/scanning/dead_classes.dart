@@ -55,7 +55,9 @@ Map<String, Set<String>> resolveDeadClasses({
   required Map<String, List<ClassReference>> classReferences,
   required List<RemovalRange> fieldRemovals,
 }) {
-  final byName = {for (final c in classes) c.className: c};
+  final byKey = {
+    for (final c in classes) classKey(c.filePath, c.className): c,
+  };
 
   // Only classes whose every field is already going can ever qualify.
   final candidates = <String>{
@@ -63,7 +65,7 @@ Map<String, Set<String>> resolveDeadClasses({
       if (c.fieldNames.isNotEmpty &&
           c.fieldNames.every(
               (f) => unusedFieldKeys.contains('${c.className}.$f')))
-        c.className,
+        classKey(c.filePath, c.className),
   };
 
   final dead = <String, Set<String>>{};
@@ -77,7 +79,7 @@ Map<String, Set<String>> resolveDeadClasses({
         continue;
       }
 
-      final declaration = byName[name]!;
+      final declaration = byKey[name]!;
       final references = classReferences[name] ?? const <ClassReference>[];
 
       // What would have to go with it for this verdict to hold.
@@ -105,7 +107,7 @@ Map<String, Set<String>> resolveDeadClasses({
         // require everything that class needs in order to go.
         String? insideDead;
         for (final other in dead.keys) {
-          final body = byName[other]!;
+          final body = byKey[other]!;
           if (reference.filePath == body.filePath &&
               reference.offset >= body.offset &&
               reference.offset < body.end) {
@@ -115,8 +117,9 @@ Map<String, Set<String>> resolveDeadClasses({
         }
         if (insideDead != null) {
           requires.addAll(dead[insideDead]!);
-          for (final field in byName[insideDead]!.fieldNames) {
-            requires.add('$insideDead.$field');
+          final body = byKey[insideDead]!;
+          for (final field in body.fieldNames) {
+            requires.add('${body.className}.$field');
           }
           continue;
         }

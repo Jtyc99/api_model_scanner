@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
+import '../model.dart';
 import '../model_field_fixer.dart';
 import 'unused_cache.dart';
 
@@ -89,7 +90,7 @@ class ReportRenderer {
         buffer.writeln('- [ ] **All of `$className`**');
         buffer.writeln();
 
-        if (cache.deadClasses.containsKey(className)) {
+        if (cache.deadClasses.containsKey(classKey(filePath, className))) {
           buffer.writeln('> 💀 **`$className` is dead.** Every field is '
               'unused, and nothing outside the code being removed still names '
               'the type. Ticking this class deletes the whole declaration, '

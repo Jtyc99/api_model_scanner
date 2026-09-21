@@ -27,6 +27,14 @@ class FieldAccessor {
   String toString() => name;
 }
 
+/// Identifies a class by where it is declared as well as what it is called.
+///
+/// Class names are not unique across a models tree — two endpoints each
+/// having their own `Gift` is ordinary — so anything that reasons about a
+/// class as a whole has to say which one it means. Keying on the name alone
+/// merges their references and can delete the wrong declaration.
+String classKey(String filePath, String className) => '$filePath|$className';
+
 /// An API model class, anchored at its name token so the language server can
 /// be asked who references the *type* — not just its fields.
 class ModelClass {

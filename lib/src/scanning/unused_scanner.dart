@@ -174,7 +174,7 @@ Future<UsageReport> analyzeUsage({
           line: model.line,
           character: model.column,
         );
-        classReferences[model.className] = [
+        classReferences[classKey(model.filePath, model.className)] = [
           for (final reference in references)
             ClassReference(
               filePath: reference.filePath,
@@ -183,7 +183,8 @@ Future<UsageReport> analyzeUsage({
         ];
       } catch (e) {
         onStatus?.call('Failed to inspect class ${model.className}: $e');
-        classReferences[model.className] = const [];
+        classReferences[classKey(model.filePath, model.className)] =
+            const [];
       }
     }
   } finally {
