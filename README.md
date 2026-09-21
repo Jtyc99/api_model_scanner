@@ -226,6 +226,9 @@ than a broken build.
 | `scan` | Find unused fields, write and open the report |
 | `remove` | Delete ticked code, then tidy imports and empty files |
 | `disable` | Comment out ticked code, or `--undo` / `--remove` what is commented |
+| `gui install` | Install the VS Code table editor (Marketplace, else bundled) |
+| `gui uninstall` | Remove it — `dart pub global deactivate` cannot |
+| `gui status` | Show whether it is installed, and what you answered |
 | `clear` | Delete this project's cached results (keeps your settings) |
 
 ### Flags
@@ -242,6 +245,8 @@ than a broken build.
 | `--undo` | `disable` | Uncomment previously disabled fields |
 | `--remove` | `disable` | Delete previously disabled fields for good |
 
+`gui` takes subcommands rather than flags: `install`, `uninstall`, `status`.
+
 `--undo` never needs `--force`: `disable` dirties the tree by construction, so
 requiring a clean one would make undo unreachable exactly when you want it.
 `--remove`, the only irreversible step, still asks for it.
@@ -256,7 +261,7 @@ All under `.dart_tool/api_model_scanner/`, which git already ignores.
 
 | File | Role |
 |---|---|
-| `config.json` | This project's models directory, if set |
+| `config.json` | This project's models directory, if set. The machine-wide copy also holds your answer to the editor prompt |
 | `unused_fields.json` | Machine-readable cache that `remove` and `disable` consume |
 | `unused_fields.md` | The tickable report |
 | `disabled_fields.json` | What is currently commented out |

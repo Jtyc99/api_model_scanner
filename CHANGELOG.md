@@ -62,3 +62,8 @@ AST-aware source edits.
 - A VS Code custom editor renders the report as a real table with checkbox
   cells — see `editors/vscode`. It writes to the same Markdown, so nothing
   depends on it being installed.
+- The first scan offers to install it and remembers the answer;
+  `amscan gui install`, `gui uninstall` and `gui status` manage it after that.
+  Installing prefers the Marketplace and falls back to the copy shipped in
+  this package. It cannot be attached to `dart pub global activate` or
+  `deactivate`: pub runs no code on either, by design.
