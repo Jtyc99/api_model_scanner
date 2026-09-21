@@ -1,5 +1,6 @@
 {
   "name": "amscan-report",
+  "publisher": "jtycedgetech",
   "displayName": "API Model Scanner report",
   "description": "Opens an api_model_scanner report as a real table with checkbox cells, writing ticks straight back to the Markdown the CLI reads.",
   "version": "0.1.0",
