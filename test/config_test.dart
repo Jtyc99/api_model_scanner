@@ -90,6 +90,59 @@ void main() {
     expect(p.isAbsolute(path), isTrue);
   });
 
+  group('the editor preference', () {
+    String globalAt() => p.join(temp.path, 'global', 'config.json');
+
+    test('is unset until answered', () {
+      expect(
+        ModelsConfig.readGuiPreference(globalConfigPath: globalAt()),
+        isNull,
+      );
+    });
+
+    test('round-trips both answers', () {
+      ModelsConfig.writeGuiPreference(true, globalConfigPath: globalAt());
+      expect(
+        ModelsConfig.readGuiPreference(globalConfigPath: globalAt()),
+        isTrue,
+      );
+
+      ModelsConfig.writeGuiPreference(false, globalConfigPath: globalAt());
+      expect(
+        ModelsConfig.readGuiPreference(globalConfigPath: globalAt()),
+        isFalse,
+      );
+    });
+
+    test('survives a later set-default', () {
+      ModelsConfig.writeGuiPreference(true, globalConfigPath: globalAt());
+      ModelsConfig.writeGlobalTo(globalAt(), 'lib/models');
+
+      expect(
+        ModelsConfig.readGuiPreference(globalConfigPath: globalAt()),
+        isTrue,
+        reason: 'writing the models directory must not drop the answer',
+      );
+      expect(ModelsConfig.resolve(temp.path, globalConfigPath: globalAt())!
+          .relative, 'lib/models');
+    });
+
+    test('and set-default does not invent one', () {
+      ModelsConfig.writeGlobalTo(globalAt(), 'lib/models');
+      expect(
+        ModelsConfig.readGuiPreference(globalConfigPath: globalAt()),
+        isNull,
+      );
+    });
+
+    test('a corrupt file reads as unanswered rather than throwing', () {
+      final path = globalAt();
+      Directory(p.dirname(path)).createSync(recursive: true);
+      File(path).writeAsStringSync('{ broken');
+      expect(ModelsConfig.readGuiPreference(globalConfigPath: path), isNull);
+    });
+  });
+
   group('a models path may be a directory or one file', () {
     File write(String relative, String content) {
       final file = File(p.join(temp.path, relative));

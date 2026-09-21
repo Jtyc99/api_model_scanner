@@ -1,3 +1,6 @@
 out/
 node_modules/
-*.vsix
+# The built extension is committed on purpose: the CLI installs it from here
+# when the Marketplace is unreachable or the extension is not published yet,
+# and `dart pub publish` ships whatever git tracks.
+# *.vsix

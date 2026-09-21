@@ -66,6 +66,41 @@ class ModelsConfig {
     return p.join(home, '.config', 'api_model_scanner', _fileName);
   }
 
+  /// Whether the user has answered the "install the editor?" question, and
+  /// how. Null means they have not been asked.
+  ///
+  /// Kept in the machine-wide file even when a project overrides the models
+  /// directory: an editor extension is installed per machine, not per repo.
+  static bool? readGuiPreference({String? globalConfigPath}) {
+    final value = _readKey(globalConfigPath ?? globalPath(), 'gui');
+    return value is bool ? value : null;
+  }
+
+  static void writeGuiPreference(bool wanted, {String? globalConfigPath}) {
+    final path = globalConfigPath ?? globalPath();
+    final existing = _readKey(path, 'models');
+    Directory(p.dirname(path)).createSync(recursive: true);
+    File(path).writeAsStringSync(
+      '${const JsonEncoder.withIndent('  ').convert({
+            if (existing is String) 'models': existing,
+            'gui': wanted,
+          })}\n',
+    );
+  }
+
+  static Object? _readKey(String path, String key) {
+    final file = File(path);
+    if (!file.existsSync()) {
+      return null;
+    }
+    try {
+      final json = jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
+      return json[key];
+    } catch (_) {
+      return null;
+    }
+  }
+
   static String? _read(String path) {
     final file = File(path);
     if (!file.existsSync()) {
@@ -85,9 +120,13 @@ class ModelsConfig {
   }
 
   static void _write(String path, String models) {
+    final gui = _readKey(path, 'gui');
     Directory(p.dirname(path)).createSync(recursive: true);
     File(path).writeAsStringSync(
-      '${const JsonEncoder.withIndent('  ').convert({'models': models})}\n',
+      '${const JsonEncoder.withIndent('  ').convert({
+            'models': models,
+            if (gui is bool) 'gui': gui,
+          })}\n',
     );
   }
 

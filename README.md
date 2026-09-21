@@ -87,6 +87,27 @@ dart pub global activate --source git https://github.com/JtycEdgeTech/api_model_
 
 `api_model_scanner` and `amscan` are the same executable.
 
+### The optional editor
+
+The first scan offers to install the VS Code editor, and remembers the answer.
+You can also manage it directly:
+
+```bash
+amscan gui install     # Marketplace if reachable, otherwise the bundled copy
+amscan gui uninstall
+amscan gui status
+```
+
+It cannot ride along with `dart pub global activate`. Pub deliberately runs
+**no** code when a package is activated or deactivated — that is what stops
+any package installing things behind your back — so there is no hook to attach
+to, and `dart pub global deactivate` cannot remove the editor either. Run
+`amscan gui uninstall` first if you want it gone. Leaving it costs nothing: it
+only claims files under `api_model_scanner/`, and does nothing without them.
+
+`code` must be on PATH. In VS Code: Command Palette →
+*Shell Command: Install 'code' command in PATH*.
+
 > **Never add this package to a Flutter app's `pubspec.yaml`.** It needs
 > `analyzer ^14`, which requires `meta ^1.18.3`, while the Flutter SDK pins
 > `meta 1.17.0`. Version solving fails. Global activation resolves it in
@@ -156,8 +177,10 @@ those.
 
 There is also a **VS Code editor** that renders the report as a real table
 with checkbox cells, restricts editing to the checkboxes, and jumps to source
-on click — see [editors/vscode](editors/vscode). It writes to the same
-Markdown file, so nothing depends on it being installed.
+on click — see [editors/vscode](editors/vscode). The first scan offers to
+install it; `amscan gui install` and `amscan gui uninstall` manage it after
+that. It writes to the same Markdown file, so nothing depends on it being
+installed.
 
 Checkboxes are list items rather than table cells on purpose: GFM only makes
 them interactive inside lists, in every mainstream preview. Toggling one in

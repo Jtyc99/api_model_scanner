@@ -11,6 +11,7 @@ import '../cache/selection.dart';
 import '../cache/unused_cache.dart';
 import '../version.dart';
 import 'config.dart';
+import 'gui.dart';
 import '../model.dart';
 import '../model_field_fixer.dart';
 import '../scanning/dead_classes.dart';
@@ -75,6 +76,7 @@ class ApiModelScannerRunner extends CommandRunner<int> {
       help: 'Print the tool version and exit.',
     );
     addCommand(SetDefaultCommand());
+    addCommand(GuiCommand());
     addCommand(ScanCommand());
     addCommand(RemoveCommand());
     addCommand(DisableCommand());
@@ -109,6 +111,50 @@ abstract class _ModelCommand extends Command<int> {
 
   /// The directory being scanned. Only valid once [resolveModels] has run.
   String get modelsPath => _models!;
+
+  /// Offers the VS Code editor the first time, and remembers the answer.
+  ///
+  /// This is as close as a Dart package can get to asking at install time:
+  /// pub runs nothing on `activate`, by design, so the first command that
+  /// produces something worth looking at has to do the asking. Silence is
+  /// treated as no — an editor extension should never arrive uninvited.
+  void maybeOfferGui() {
+    if (ModelsConfig.readGuiPreference() != null) {
+      return; // Already answered; `amscan gui` changes it.
+    }
+    if (!canPrompt || !codeCliAvailable() || guiInstalled()) {
+      return;
+    }
+
+    say('');
+    say('There is a VS Code editor for this report: a real table with '
+        'checkbox cells, instead of a Markdown list.');
+    say('');
+
+    final choice = selectSingle('  Install it?', [
+      'No — the Markdown report is fine',
+      'Yes — install it now',
+    ]);
+
+    if (choice != 1) {
+      ModelsConfig.writeGuiPreference(false);
+      say('');
+      say('Skipped. Run `amscan gui install` if you change your mind.');
+      say('');
+      return;
+    }
+
+    final result = installGui();
+    ModelsConfig.writeGuiPreference(result.ok);
+    say('');
+    if (result.ok) {
+      say('Installed $extensionId. Reload the VS Code window to use it.');
+    } else {
+      say('Could not install it; the Markdown report still works. '
+          'Try `amscan gui install` for the details.');
+    }
+    say('');
+  }
 
   /// Works out which directory to scan.
   ///
@@ -368,6 +414,8 @@ class ScanCommand extends _ModelCommand {
     say('Report written to:');
     say('  ${cache.reportPath}');
     say('');
+
+    maybeOfferGui();
 
     if (shouldOpen && openInEditor(cache.reportPath) == null) {
       say('Could not open an editor automatically — open the path above.');
@@ -885,6 +933,122 @@ class DisableCommand extends _MutatingCommand {
     }
     say('');
     return 0;
+  }
+}
+
+/// `amscan gui`, `amscan gui install`, `amscan gui uninstall`
+///
+/// Pub runs nothing on `activate` or `deactivate` — a package may never
+/// execute its own code as a side effect of being installed — so the editor
+/// cannot ride along with either. These commands are how it is managed, and
+/// [maybeOfferGui] is what makes the first run mention it at all.
+class GuiCommand extends Command<int> {
+  GuiCommand() {
+    addSubcommand(_GuiInstallCommand());
+    addSubcommand(_GuiUninstallCommand());
+    addSubcommand(_GuiStatusCommand());
+  }
+
+  @override
+  String get name => 'gui';
+
+  @override
+  String get description =>
+      'Manage the VS Code editor that shows reports as a table.';
+
+}
+
+class _GuiStatusCommand extends Command<int> {
+  @override
+  String get name => 'status';
+
+  @override
+  String get description => 'Show whether the editor is installed.';
+
+  @override
+  Future<int> run() async {
+    final stored = ModelsConfig.readGuiPreference();
+
+    stdout.writeln('Editor: $extensionId');
+
+    if (!codeCliAvailable()) {
+      stdout.writeln('  The `code` command is not on PATH, so this cannot be '
+          'managed from here.');
+      stdout.writeln('  In VS Code: Command Palette → '
+          '"Shell Command: Install \'code\' command in PATH".');
+      return 0;
+    }
+
+    stdout.writeln(guiInstalled() ? '  Installed.' : '  Not installed.');
+    stdout.writeln(switch (stored) {
+      true => '  You asked for it to be installed.',
+      false => '  You declined it; run `amscan gui install` to change that.',
+      null => '  You have not been asked yet.',
+    });
+    return 0;
+  }
+}
+
+class _GuiInstallCommand extends Command<int> {
+  @override
+  String get name => 'install';
+
+  @override
+  String get description => 'Install the VS Code editor for reports.';
+
+  @override
+  Future<int> run() async {
+    final result = installGui();
+    ModelsConfig.writeGuiPreference(result.ok);
+
+    if (result.ok) {
+      stdout.writeln(switch (result.source!) {
+        GuiSource.marketplace => 'Installed $extensionId from the Marketplace.',
+        GuiSource.bundled =>
+          'Installed $extensionId from the copy shipped with this package.',
+      });
+      stdout.writeln('Reload the VS Code window for it to take effect '
+          '(Command Palette → "Developer: Reload Window").');
+      return 0;
+    }
+
+    switch (result.problem!) {
+      case GuiProblem.noCodeCli:
+        stderr.writeln('The `code` command is not on PATH.');
+        stderr.writeln('In VS Code: Command Palette → '
+            '"Shell Command: Install \'code\' command in PATH", then retry.');
+      case GuiProblem.unavailable:
+        stderr.writeln('Could not install $extensionId.');
+        if (result.detail.isNotEmpty) {
+          stderr.writeln(result.detail);
+        }
+        stderr.writeln('The Markdown report works without it.');
+    }
+    return 1;
+  }
+}
+
+class _GuiUninstallCommand extends Command<int> {
+  @override
+  String get name => 'uninstall';
+
+  @override
+  String get description => 'Remove the VS Code editor for reports.';
+
+  @override
+  Future<int> run() async {
+    // Recorded either way: `deactivate` cannot reach the editor, so the
+    // answer has to survive for the next install to respect it.
+    ModelsConfig.writeGuiPreference(false);
+
+    if (uninstallGui()) {
+      stdout.writeln('Removed $extensionId.');
+      return 0;
+    }
+
+    stderr.writeln('Could not remove $extensionId — '
+        'it may not be installed, or `code` is not on PATH.');
+    return 1;
   }
 }
 
