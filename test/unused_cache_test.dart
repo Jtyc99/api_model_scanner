@@ -118,6 +118,97 @@ void main() {
     expect(report.contains('[L2]'), isFalse);
   });
 
+  group('rows link twice, since no one link works in every editor', () {
+    test('the class header is a relative link that resolves on disk', () {
+      final report = store.renderReport(buildCache());
+
+      final pattern = RegExp(r'\u2514 \[[^\]]+\]\((\.\.[^)#]*)\)');
+      final match = pattern.firstMatch(report);
+      expect(match, isNotNull, reason: 'class header should link the file');
+
+      final target = p.normalize(p.join(store.directory, match!.group(1)!));
+      expect(File(target).existsSync(), isTrue, reason: 'missing: $target');
+    });
+
+    test('each part carries a relative line link and a VS Code link', () {
+      final report = store.renderReport(buildCache());
+
+      // The relative one is what JetBrains' preview will follow.
+      expect(report, matches(RegExp(r'\[line 2\]\(\.\.[^)]*#L2\)')));
+      // The vscode one is the only form that lands on the line.
+      expect(report, contains('[VS Code](vscode://file'));
+    });
+
+    test('relative line links resolve to a real file', () {
+      final report = store.renderReport(buildCache());
+
+      final pattern = RegExp(r'\[line \d+\]\((\.\.[^)#]+)#L\d+\)');
+      final targets = pattern
+          .allMatches(report)
+          .map((m) => p.normalize(p.join(store.directory, m.group(1)!)))
+          .toSet();
+
+      expect(targets, isNotEmpty);
+      for (final target in targets) {
+        expect(File(target).existsSync(), isTrue, reason: 'missing: $target');
+      }
+    });
+  });
+
+  group('selection still round-trips through the rendered report', () {
+    /// Ticks every box the parser recognises, the way a reader would.
+    String tickAll(String report) => report
+        .split('\n')
+        .map((line) => line.replaceFirst('- [ ]', '- [x]'))
+        .join('\n');
+
+    test('an untouched report selects nothing', () {
+      final selection = parseSelection(store.renderReport(buildCache()));
+      expect(selection.isNotEmpty, isFalse);
+    });
+
+    test('a ticked field is read back as that field', () {
+      final report = store
+          .renderReport(buildCache())
+          .replaceFirst('- [ ] **`desktop`**', '- [x] **`desktop`**');
+
+      final selection = parseSelection(report);
+
+      expect(selection.selectsWholeField('HomeBanner', 'desktop'), isTrue);
+      expect(selection.selectsWholeField('HomeBanner', 'other'), isFalse);
+    });
+
+    test('a ticked class is read back as the whole class', () {
+      final report = store
+          .renderReport(buildCache())
+          .replaceFirst("- [ ] **All of `HomeBanner`**",
+              "- [x] **All of `HomeBanner`**");
+
+      final selection = parseSelection(report);
+
+      expect(selection.selectsWholeField('HomeBanner', 'desktop'), isTrue);
+    });
+
+    test('an indented part is read back as that part alone', () {
+      final report = store.renderReport(buildCache());
+      final lines = report.split('\n');
+      final index =
+          lines.indexWhere((l) => RegExp(r'^\s+-\s*\[ \]').hasMatch(l));
+      expect(index, greaterThan(-1), reason: 'report should have part rows');
+      lines[index] = lines[index].replaceFirst('[ ]', '[x]');
+
+      final selection = parseSelection(lines.join('\n'));
+
+      expect(selection.selectsPart('HomeBanner', 'desktop', 0), isTrue);
+      expect(selection.selectsWholeField('HomeBanner', 'desktop'), isFalse);
+    });
+
+    test('ticking everything selects everything', () {
+      final selection = parseSelection(tickAll(store.renderReport(buildCache())));
+      expect(selection.all, isTrue);
+    });
+  });
+
   test('vscode links carry an absolute path, line and column', () {
     final report = store.renderReport(buildCache());
 

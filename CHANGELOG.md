@@ -55,6 +55,12 @@ The command surface changed, hence the major bump.
 
 ### Changed
 
+- Report rows link twice: a relative `line N` link that Android Studio /
+  IntelliJ previews will follow, and the `vscode://` form that lands the
+  cursor on the exact line. Previously every link was `vscode://`, which
+  JetBrains previews ignore. The disabled record links its files too, where
+  it previously printed a bare path.
+
 - `disabled_fields.json` records each range with its position in the file, not
   just its text. Records in the old format still load.
 - `clear` keeps `config.json`; it is a setting, not a cached result.

@@ -52,6 +52,11 @@ class ReportRenderer {
         'else can reference a field that no longer exists. '
         'With nothing ticked, both commands offer to act on everything.');
     buffer.writeln();
+    buffer.writeln('Every row links twice, because no single link works '
+        'everywhere: **line N** is relative and opens in Android Studio / '
+        'IntelliJ (and VS Code), while **VS Code** is the only form that '
+        'reliably lands the cursor on the exact line.');
+    buffer.writeln();
     buffer.writeln('- [ ] **SELECT EVERYTHING**');
     buffer.writeln();
 
@@ -76,7 +81,7 @@ class ReportRenderer {
         buffer.writeln();
         buffer.writeln('## $className');
         buffer.writeln();
-        buffer.writeln('└ ${_link(
+        buffer.writeln('└ ${_relative(
           p.relative(filePath, from: cache.projectRoot),
           filePath,
         )}');
@@ -112,7 +117,8 @@ class ReportRenderer {
           for (final edit in edits) {
             buffer.writeln(
               '  - [ ] `${edit.label.padRight(width)}` '
-              '${_link('line ${edit.line}', filePath, edit.line)}',
+              '${_relative('line ${edit.line}', filePath, edit.line)} · '
+              '${_vscode('VS Code', filePath, edit.line)}',
             );
           }
           buffer.writeln();
@@ -157,13 +163,22 @@ class ReportRenderer {
     return plans;
   }
 
-  /// A Markdown link to [target], optionally at [line].
+  /// A relative Markdown link, optionally carrying an `#L<n>` fragment.
   ///
-  /// `vscode://file/<path>:<line>:<col>` is the form that actually moves the
-  /// cursor; a bare `#L<n>` fragment often just opens the file. The absolute
-  /// path only resolves on this machine, which is fine for a report that
-  /// lives in `.dart_tool/` and is never shared.
-  String _link(String text, String target, [int? line]) {
+  /// This is the form JetBrains' Markdown preview will follow — and the only
+  /// one that resolves anywhere but the machine that wrote the file. Editors
+  /// vary on whether the fragment moves the cursor; most just open the file.
+  String _relative(String text, String target, [int? line]) {
+    final relative = p.relative(target, from: directory);
+    final fragment = line == null ? '' : '#L$line';
+    return '[$text]($relative$fragment)';
+  }
+
+  /// `vscode://file/<path>:<line>:<col>` — the one form that reliably puts
+  /// the cursor on the line, and only in VS Code. Absolute, so it means
+  /// nothing off this machine; harmless for a report that lives in
+  /// `.dart_tool/` and is never shared.
+  String _vscode(String text, String target, [int? line]) {
     final encoded = Uri.encodeFull(p.absolute(target));
     final position = line == null ? '' : ':$line:1';
     return '[$text](vscode://file$encoded$position)';

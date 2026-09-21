@@ -215,7 +215,11 @@ class DisabledStore {
         buffer.writeln();
         buffer.writeln('## ${classEntry.key}');
         buffer.writeln();
-        buffer.writeln('\u2514 ${p.relative(entry.key, from: projectRoot)}');
+        // Relative, so the preview can follow it in either IDE. There is no
+        // line to aim at: a disabled range is recorded by its text, and the
+        // lines around it have shifted anyway.
+        buffer.writeln('\u2514 [${p.relative(entry.key, from: projectRoot)}]'
+            '(${p.relative(entry.key, from: directory)})');
         buffer.writeln();
         buffer.writeln('- [ ] **All of `${classEntry.key}`**');
         buffer.writeln();

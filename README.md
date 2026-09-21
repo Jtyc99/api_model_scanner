@@ -154,6 +154,23 @@ with GFM task lists — click the checkboxes in your editor's preview, or type
 `x`. Tick a field to take it whole, or tick individual parts to take only
 those.
 
+Checkboxes are list items rather than table cells on purpose: GFM only makes
+them interactive inside lists, in every mainstream preview. Toggling one in
+Android Studio / IntelliJ writes `[x]` straight back to the file, which is all
+the tool reads. VS Code's stock preview navigates links but does not toggle
+checkboxes — type the `x` instead, or use the Markdown Preview Enhanced
+extension.
+
+Each row links twice, because no single link works everywhere:
+
+| Link | Follows in | Lands on |
+|---|---|---|
+| **line N** | Android Studio / IntelliJ, VS Code | the file (often not the line) |
+| **VS Code** | VS Code only | the exact line and column |
+
+The relative link is also the only one that means anything off the machine
+that wrote the report.
+
 **`amscan remove`** deletes the ticked code, then tidies imports that are no
 longer used and deletes files left empty.
 
