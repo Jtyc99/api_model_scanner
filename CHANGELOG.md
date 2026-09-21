@@ -1,70 +1,64 @@
-## 2.0.0
-
-The command surface changed, hence the major bump.
-
-### Added
-
-- `set-default <dir>` remembers where your API models live, so `--models` is
-  no longer needed on every run. Machine-wide by default; `--project` writes a
-  setting for one repo that wins over it.
-- `scan`, `remove` and `disable` require a models directory and exit 78 when
-  none is set. There is no fallback to scanning the whole of `lib`: it would
-  treat every class in the app as an API model.
-
-- `--models` accepts a single `.dart` file as well as a directory, for
-  narrowing a scan down to one model.
-- Only classes that declare `fromJson`/`toJson`, or extend one in the same
-  file that does, are treated as API models. The tool's reasoning — that
-  serialization keeps a field alive regardless of who reads it — does not hold
-  for an ordinary class, where the same absence of references can mean the
-  field is reached some way the analyzer resolves differently. Skipped classes
-  are counted in the scan output.
-
-### Removed
-
-- `--link-style`, `--json` and `--fail-on-unused`. The first threaded a
-  rendering option through four files for a report that only ever opens on the
-  machine that wrote it; the other two existed solely for CI, which this tool
-  is not run in.
-- `--models` no longer defaults to `lib/server/response`. Use `set-default`.
-
-### Fixed
-
-- Removing a field now also removes the `super.field` parameters that
-  subclasses forward it through, including subclasses in other files. Before,
-  the edit left `super_formal_parameter_without_associated_named` behind — a
-  resolution error, so it parsed cleanly and only `dart analyze` caught it.
-- `disable --undo` no longer refuses a dirty working tree. `disable` dirties
-  the tree by construction, so the guard made undo unreachable exactly when it
-  was most wanted. `--remove`, the irreversible path, keeps it.
-- `--undo` restores every field sharing one commented range. A `hashCode`
-  taken whole is recorded under each of its fields; the first field restored it
-  and every later one was then skipped wholesale, stranding its declaration
-  while the restored expression still named it.
-- `--undo` restores byte-identical ranges separately. A field routinely
-  produces `num? id,` twice — constructor and `copyWith` — and the record
-  deduplicated them, leaving the second commented for good with the record
-  cleared as though it had been restored.
-- Undoing a subset now holds back ranges shared with fields that are not
-  selected, and says which ones to tick, instead of writing code that does not
-  compile and reverting the whole run.
-
-- A reference lookup that times out is retried once. The first request also
-  pays for the analysis server indexing the project, which on a large one can
-  outlast the timeout — and a field lost there never reached the report.
-
-### Changed
-
-- Report rows link twice: a relative `line N` link that Android Studio /
-  IntelliJ previews will follow, and the `vscode://` form that lands the
-  cursor on the exact line. Previously every link was `vscode://`, which
-  JetBrains previews ignore. The disabled record links its files too, where
-  it previously printed a bare path.
-
-- `disabled_fields.json` records each range with its position in the file, not
-  just its text. Records in the old format still load.
-- `clear` keeps `config.json`; it is a setting, not a cached result.
-
 ## 1.0.0
 
-- Initial version.
+First release.
+
+Finds API model fields your Flutter app never uses, by asking the Dart
+analysis server who actually references each one, and removes them with
+AST-aware source edits.
+
+### Commands
+
+- `set-default <dir>` remembers where your API models live, machine-wide or —
+  with `--project` — for one repo, which wins over it. Required once: `scan`,
+  `remove` and `disable` exit 78 rather than guess, since falling back to all
+  of `lib` would treat every class in the app as an API model.
+- `scan` writes a tickable Markdown report and opens it.
+- `remove` deletes the ticked code, then strips imports left unused and
+  deletes files left empty — keeping any file something still imports.
+- `disable` comments the code out instead; `--undo` restores it and
+  `--remove` deletes it for good.
+- `clear` drops this project's cached results, keeping your settings.
+
+### Detection
+
+- Accessor-aware: a field stored privately and published through a getter is
+  reached by that getter, so counting only the field would mark every such
+  field in the project unused.
+- Only classes that declare `fromJson`/`toJson`, or extend one in the same
+  file that does, are treated as API models. The reasoning — that
+  serialization keeps a field alive regardless of who reads it — does not
+  hold for an ordinary class.
+- References from inside a model's own file are serialization, not usage.
+
+### Rewriting
+
+- `==` and `hashCode` chains are cut per contiguous run, so removing a prefix
+  cannot leave a dangling operator.
+- A member whose every term is removed goes with them, rather than becoming a
+  syntax error.
+- An optional parameter group that empties loses its `{}`, which Dart does not
+  allow to be empty.
+- Subclasses give up the `super.field` parameters they forward, including
+  subclasses in other files — a resolution error that parses cleanly, so only
+  `dart analyze` would otherwise catch it.
+- Classes left dead by a removal are resolved to a fixpoint and taken whole.
+
+### Safety
+
+- After writing, `remove` and `disable` run `dart analyze` and restore every
+  file if an error appears. It fails closed: if verification cannot run, it
+  reverts.
+- Both refuse a dirty git working tree, so `git diff` always shows exactly
+  what the tool did. `--undo` is exempt, since `disable` dirties the tree by
+  construction.
+- `disabled_fields.json` anchors each commented range to its position in the
+  file, not just its text, so two byte-identical ranges are restored
+  separately.
+- Undoing part of a class holds back ranges shared with fields that are not
+  selected, and names the ones to tick.
+
+### Editor
+
+- A VS Code custom editor renders the report as a real table with checkbox
+  cells — see `editors/vscode`. It writes to the same Markdown, so nothing
+  depends on it being installed.
