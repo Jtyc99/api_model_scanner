@@ -269,7 +269,7 @@ abstract class _ModelCommand extends Command<int> {
 
     if (deadClasses.isNotEmpty) {
       say('${deadClasses.length} class${deadClasses.length == 1 ? '' : 'es'} '
-          'dead outright: ${deadClasses.join(', ')}');
+          'dead outright: ${deadClasses.keys.join(', ')}');
     }
 
     final result = UnusedCache(
@@ -287,7 +287,7 @@ abstract class _ModelCommand extends Command<int> {
 
   /// Computes each unused field's removal ranges, then iterates the dead-class
   /// fixpoint over them.
-  Set<String> _resolveDead({
+  Map<String, Set<String>> _resolveDead({
     required List<ModelClass> classes,
     required List<CachedField> unused,
     required Map<String, List<ClassReference>> classReferences,
@@ -318,6 +318,7 @@ abstract class _ModelCommand extends Command<int> {
               filePath: entry.key,
               start: edit.start,
               end: edit.end,
+              fieldKey: '${field.className}.${field.fieldName}',
             ));
           }
         } catch (_) {

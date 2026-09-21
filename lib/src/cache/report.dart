@@ -89,7 +89,7 @@ class ReportRenderer {
         buffer.writeln('- [ ] **All of `$className`**');
         buffer.writeln();
 
-        if (cache.deadClasses.contains(className)) {
+        if (cache.deadClasses.containsKey(className)) {
           buffer.writeln('> 💀 **`$className` is dead.** Every field is '
               'unused, and nothing outside the code being removed still names '
               'the type. Ticking this class deletes the whole declaration, '

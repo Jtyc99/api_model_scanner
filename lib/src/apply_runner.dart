@@ -91,7 +91,7 @@ Future<ApplySummary> applySelection({
   required Selection selection,
   required EditMode mode,
   required bool runFormat,
-  Set<String> deadClasses = const {},
+  Map<String, Set<String>> deadClasses = const {},
 
   /// Every `extends` edge in the models tree, so subclasses that forward a
   /// removed field from *another* file can be fixed alongside it. Empty means
@@ -142,9 +142,33 @@ Future<ApplySummary> applySelection({
 
     // A dead class is removed whole: its declaration subsumes every field
     // edit inside it, and leaving an empty husk behind helps nobody.
+    //
+    // The verdict was reached assuming every unused field would go, so it has
+    // to be re-checked against what was actually ticked. A class whose last
+    // reference lives in a field the user left alone is not dead at all, and
+    // taking it would leave that field naming a type that no longer exists —
+    // in a file this run may not otherwise touch, so verification could miss
+    // it entirely.
+    bool stillDead(String className) {
+      final conditions = deadClasses[className];
+      if (conditions == null) {
+        return false;
+      }
+      return conditions.every((key) {
+        final dot = key.indexOf('.');
+        if (dot <= 0) {
+          return false;
+        }
+        return selection.selectsWholeField(
+          key.substring(0, dot),
+          key.substring(dot + 1),
+        );
+      });
+    }
+
     final deadHere = <String>{
       for (final className in fileEntry.value.keys)
-        if (deadClasses.contains(className) &&
+        if (stillDead(className) &&
             fileEntry.value[className]!.every((f) =>
                 selection.selectsWholeField(className, f.fieldName)))
           className,

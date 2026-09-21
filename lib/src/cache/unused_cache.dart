@@ -57,7 +57,8 @@ class UnusedCache {
 
   /// Classes that are dead outright: every field unused, and every remaining
   /// reference to the type lives inside code that is itself being removed.
-  final Set<String> deadClasses;
+  /// Dead class -> the `Class.field` keys its verdict depends on.
+  final Map<String, Set<String>> deadClasses;
 
   const UnusedCache({
     required this.scannedAt,
@@ -74,7 +75,10 @@ class UnusedCache {
         'modelsPath': modelsPath,
         'totalFieldsScanned': totalFieldsScanned,
         'fields': fields.map((f) => f.toJson()).toList(),
-        'deadClasses': deadClasses.toList(),
+        'deadClasses': {
+          for (final entry in deadClasses.entries)
+            entry.key: entry.value.toList(),
+        },
       };
 
   factory UnusedCache.fromJson(Map<String, dynamic> json) => UnusedCache(
@@ -85,9 +89,16 @@ class UnusedCache {
         fields: (json['fields'] as List<dynamic>)
             .map((e) => CachedField.fromJson(e as Map<String, dynamic>))
             .toList(),
-        deadClasses: ((json['deadClasses'] as List<dynamic>?) ?? const [])
-            .cast<String>()
-            .toSet(),
+        // A list is the old shape, which recorded no conditions. Those
+        // verdicts cannot be re-checked against a selection, so they are
+        // dropped rather than trusted; the next scan rebuilds them.
+        deadClasses: switch (json['deadClasses']) {
+          final Map<String, dynamic> map => {
+              for (final entry in map.entries)
+                entry.key: (entry.value as List<dynamic>).cast<String>().toSet(),
+            },
+          _ => const <String, Set<String>>{},
+        },
       );
 
   /// Human-readable age, e.g. "4 minutes ago".

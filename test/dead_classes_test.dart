@@ -44,10 +44,11 @@ ModelClass salary = const ModelClass(
 
 /// The declaration `Job? job;` inside Person, at offset 40..60.
 const _jobFieldInPerson =
-    RemovalRange(filePath: _personFile, start: 40, end: 60);
+    RemovalRange(filePath: _personFile, start: 40, end: 60, fieldKey: 'Person.job');
 
 /// The declaration `Salary? salary;` inside Job, at offset 40..60.
-const _salaryFieldInJob = RemovalRange(filePath: _jobFile, start: 40, end: 60);
+const _salaryFieldInJob =
+    RemovalRange(filePath: _jobFile, start: 40, end: 60, fieldKey: 'Job.salary');
 
 void main() {
   test('a class whose fields are all unused and unreferenced is dead', () {
@@ -57,7 +58,7 @@ void main() {
       classReferences: {'Job': const []},
       fieldRemovals: const [],
     );
-    expect(dead, {'Job'});
+    expect(dead.keys.toSet(), {'Job'});
   });
 
   test('a class still named from live code survives', () {
@@ -85,7 +86,7 @@ void main() {
       },
       fieldRemovals: const [_jobFieldInPerson],
     );
-    expect(dead, {'Job'});
+    expect(dead.keys.toSet(), {'Job'});
   });
 
   test('deadness cascades through a chain of classes', () {
@@ -104,7 +105,7 @@ void main() {
       },
       fieldRemovals: const [_jobFieldInPerson, _salaryFieldInJob],
     );
-    expect(dead, {'Job', 'Salary'});
+    expect(dead.keys.toSet(), {'Job', 'Salary'});
   });
 
   test('a live leaf stops the cascade', () {
@@ -121,8 +122,43 @@ void main() {
       },
       fieldRemovals: const [_jobFieldInPerson],
     );
-    expect(dead, {'Job'});
-    expect(dead.contains('Salary'), isFalse);
+    expect(dead.keys.toSet(), {'Job'});
+    expect(dead.containsKey('Salary'), isFalse);
+  });
+
+  test('a verdict records the field it depends on', () {
+    // `Job` is only dead because `Person.job` is going. If the user ticks
+    // `Job` but leaves `Person.job` alone, taking the class would leave that
+    // field naming a type that no longer exists — so the condition has to
+    // travel with the verdict.
+    final dead = resolveDeadClasses(
+      classes: [job],
+      unusedFieldKeys: {'Job.title', 'Job.salary'},
+      classReferences: {
+        'Job': const [ClassReference(filePath: _personFile, offset: 45)],
+      },
+      fieldRemovals: const [_jobFieldInPerson],
+    );
+
+    expect(dead.keys.toSet(), {'Job'});
+    expect(dead['Job'], {'Person.job'});
+  });
+
+  test('a cascade inherits the conditions of the class above it', () {
+    // Salary dies because Job dies, which dies because Person.job goes. So
+    // taking Salary depends on Person.job *and* on Job going with it.
+    final dead = resolveDeadClasses(
+      classes: [job, salary],
+      unusedFieldKeys: {'Job.title', 'Job.salary', 'Salary.amount'},
+      classReferences: {
+        'Job': const [ClassReference(filePath: _personFile, offset: 45)],
+        'Salary': const [ClassReference(filePath: _jobFile, offset: 45)],
+      },
+      fieldRemovals: const [_jobFieldInPerson, _salaryFieldInJob],
+    );
+
+    expect(dead.keys.toSet(), {'Job', 'Salary'});
+    expect(dead['Salary'], contains('Job.salary'));
   });
 
   test('a class with a surviving field is never dead', () {
@@ -145,7 +181,7 @@ void main() {
       },
       fieldRemovals: const [],
     );
-    expect(dead, {'Job'});
+    expect(dead.keys.toSet(), {'Job'});
   });
 
   test('a class with no fields is never considered dead', () {
