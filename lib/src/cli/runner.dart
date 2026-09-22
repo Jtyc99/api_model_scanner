@@ -1110,26 +1110,59 @@ bool installInto(EditorTarget target, void Function(String) say) {
       installIntellijPlugin(ide: ide, source: bundled);
       if (ide.hasPlugin) {
         say('  ${good('✓')} ${ide.name}');
-
-        // The IDE reads its plugins directory at startup and never again, so
-        // a copy made underneath a running one is invisible until it
-        // restarts. Its own installer does not have that problem: every
-        // extension point this plugin uses is declared dynamic, so loading
-        // it through the IDE applies straight away.
-        final archive = bundledIntellijZip();
-        if (running && archive != null) {
-          say('      ${dim('restart it to use the editor')}');
-          say('      ${dim('or, without restarting: Settings → Plugins → '
-              '⚙ → Install Plugin from Disk')}');
-          say('      ${dim(archive)}');
-        } else {
-          say('      ${dim('restart it to use the editor')}');
-        }
+        _settleRestart(ide, running, say);
         return true;
       }
       say('  ${warnish('!')} ${ide.name}');
       say('      ${dim('could not copy the plugin in')}');
       return false;
+  }
+}
+
+/// Deals with the restart a freshly copied plugin needs.
+///
+/// The IDE reads its plugins directory only at startup, so a copy made under
+/// a running one is invisible until it goes round again. Offered rather than
+/// done, because quitting somebody's IDE is not a side effect of installing
+/// an editor — and never offered when there is nobody there to answer.
+void _settleRestart(
+  JetBrainsIde ide,
+  bool running,
+  void Function(String) say,
+) {
+  if (!running) {
+    say('      ${dim('it will be there next time you open it')}');
+    return;
+  }
+
+  if (!canPrompt) {
+    say('      ${dim('restart it to use the editor')}');
+    return;
+  }
+
+  say('');
+  // No first, so cancelling leaves the IDE alone.
+  final choice = selectSingle('  Restart ${ide.name} now?', [
+    'No — I will restart it myself',
+    'Yes — quit and reopen it',
+  ]);
+
+  if (choice != 1) {
+    say('  ${dim('Restart it when you are ready; the editor appears then.')}');
+    return;
+  }
+
+  say('  ${dim('Quitting ${ide.name}…')}');
+  final result = restartAndroidStudio();
+
+  if (result.ok) {
+    say('  ${good('✓')} Reopened ${ide.name}.');
+    return;
+  }
+
+  say('  ${warnish('!')} Could not restart it — do it yourself to finish.');
+  if (result.detail.isNotEmpty) {
+    say('      ${dim(result.detail.split('\n').first)}');
   }
 }
 

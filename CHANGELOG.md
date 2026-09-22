@@ -59,7 +59,8 @@ AST-aware source edits.
   has no supported way to install a plugin from a local file on the command
   line, so this copies the unpacked plugin into the IDE's `plugins` directory
   the way the IDE itself would — which is why it is shipped unpacked rather
-  than zipped.
+  than zipped. That directory is read only at startup, so `gui install` offers
+  to restart the IDE afterwards: a graceful quit, so open projects come back.
 
 - The editor command is configurable, so the VS Code forks work: they keep the
   same extension CLI, and since they use OpenVSX rather than the Marketplace,

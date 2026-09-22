@@ -39,26 +39,27 @@ a sandboxed IDE, and there is nothing here that needs one. The logic lives in
 `:report` and tests itself without an IDE — the same property that lets
 `report.ts` be tested without VS Code.
 
-## Installing, and why a restart is usually needed
+## Installing, and why a restart is needed
 
-Every extension point this plugin uses is declared `dynamic="true"` by the
-platform, so the plugin itself can be loaded and unloaded without restarting.
-Whether you actually get that depends on *how* it is installed:
+A JetBrains IDE reads its `plugins` directory only at startup, and there is no
+supported way to ask a running one to load a plugin from a local file. So the
+restart is the mechanism, not a workaround for one.
 
-| Route | Restart? |
-|---|---|
-| **Settings → Plugins → ⚙ → Install Plugin from Disk**, pick the `.zip` | No — the IDE loads it there and then |
-| `amscan gui install`, or copying into `plugins/` yourself | Yes — the IDE reads that directory only at startup |
+`amscan gui install` copies the plugin in and then offers to restart the IDE
+for you — a graceful quit, so open projects are saved and restored. It only
+offers when the IDE is running and there is a terminal to answer on; an
+unattended run installs and says nothing further.
 
-The copy is what `amscan gui install` does, because there is no supported way
-to ask a running IDE to install a plugin from a local file. It is the
-friction-free route when the IDE is closed; when it is open, the dialog above
-avoids the restart. `gui install` prints the archive path for exactly that.
+To do it by hand:
 
 ```bash
 unzip -q build/distributions/amscan-report-intellij-0.1.0.zip \
   -d "$HOME/Library/Application Support/Google/AndroidStudio<version>/plugins"
 ```
+
+Every extension point this plugin uses is declared `dynamic="true"`, so the
+IDE is able to load it without a restart — but only through its own plugin
+machinery, which a file copy does not go through.
 
 ## Working on the plugin
 

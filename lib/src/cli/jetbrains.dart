@@ -173,32 +173,6 @@ void _copyInto(Directory source, Directory target) {
   }
 }
 
-/// The plugin archive shipped inside this package, if it is still there.
-///
-/// Kept beside the unpacked copy because the two serve different installs:
-/// copying the directory in is what `gui install` does, and the IDE only
-/// notices that at startup. Handing this `.zip` to the IDE's own
-/// "Install Plugin from Disk" goes through its plugin machinery instead,
-/// which loads the plugin straight away — every extension point it uses is
-/// declared `dynamic`, so nothing forces a restart.
-String? bundledIntellijZip() {
-  final root = _packageRoot();
-  if (root == null) {
-    return null;
-  }
-  final directory = Directory(p.join(root, 'editors', 'intellij'));
-  if (!directory.existsSync()) {
-    return null;
-  }
-  final archives = directory
-      .listSync()
-      .whereType<File>()
-      .where((file) => file.path.endsWith('.zip'))
-      .toList()
-    ..sort((a, b) => b.path.compareTo(a.path));
-  return archives.isEmpty ? null : archives.first.path;
-}
-
 /// The plugin shipped inside this package, if it is still there.
 ///
 /// Resolved through a `package:` URI for the same reason as the `.vsix`:
@@ -298,15 +272,61 @@ String? _which(String executable) {
 /// no-restart route, nothing more. A wrong answer costs one extra line of
 /// advice.
 extension JetBrainsIdeRunning on JetBrainsIde {
-  bool get isRunning {
-    if (!Platform.isMacOS) {
-      return false;
+  bool get isRunning => Platform.isMacOS && _androidStudioRunning();
+}
+
+/// Quits Android Studio and starts it again, so a freshly copied plugin is
+/// picked up.
+///
+/// A JetBrains IDE reads its plugins directory only at startup, and there is
+/// no supported way to ask a running one to load a plugin from a local file —
+/// so the restart is the mechanism, not a workaround for one.
+///
+/// The quit is the graceful one the menu uses, which lets the IDE save and
+/// restore the open projects. When it does not go — an unsaved-changes dialog
+/// will hold it — this reports that rather than forcing it: killing an IDE to
+/// install an editor plugin is a poor trade.
+({bool ok, String detail}) restartAndroidStudio({
+  Duration timeout = const Duration(seconds: 45),
+}) {
+  if (!Platform.isMacOS) {
+    return (ok: false, detail: 'Restarting from here only works on macOS.');
+  }
+
+  try {
+    final quit = Process.runSync(
+      'osascript',
+      ['-e', 'tell application "Android Studio" to quit'],
+    );
+    if (quit.exitCode != 0) {
+      return (ok: false, detail: '${quit.stderr}'.trim());
     }
-    try {
-      final result = Process.runSync('pgrep', ['-f', 'Android Studio.app']);
-      return result.exitCode == 0;
-    } catch (_) {
-      return false;
+
+    final deadline = DateTime.now().add(timeout);
+    while (DateTime.now().isBefore(deadline)) {
+      if (!_androidStudioRunning()) {
+        final opened = Process.runSync('open', ['-a', 'Android Studio']);
+        return opened.exitCode == 0
+            ? (ok: true, detail: '')
+            : (ok: false, detail: '${opened.stderr}'.trim());
+      }
+      sleep(const Duration(milliseconds: 250));
     }
+
+    return (
+      ok: false,
+      detail: 'It is still running — something is probably asking to be '
+          'saved.',
+    );
+  } catch (e) {
+    return (ok: false, detail: '$e');
+  }
+}
+
+bool _androidStudioRunning() {
+  try {
+    return Process.runSync('pgrep', ['-f', 'Android Studio.app']).exitCode == 0;
+  } catch (_) {
+    return false;
   }
 }
