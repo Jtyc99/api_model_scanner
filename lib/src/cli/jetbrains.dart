@@ -24,6 +24,20 @@ class JetBrainsIde {
 
   bool get hasPlugin =>
       Directory(p.join(pluginsDirectory, intellijPluginName)).existsSync();
+
+  // Compared by the directory, so two handles on the same installation are
+  // the same installation. Without this, checking a found IDE against the
+  // newest one — a different instance of the same thing — silently never
+  // matches, and code that reads correctly does nothing at all.
+  @override
+  bool operator ==(Object other) =>
+      other is JetBrainsIde && other.configDirectory == configDirectory;
+
+  @override
+  int get hashCode => configDirectory.hashCode;
+
+  @override
+  String toString() => '$name ($configDirectory)';
 }
 
 /// Where JetBrains IDEs keep per-version configuration on [os].

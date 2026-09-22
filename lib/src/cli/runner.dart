@@ -1039,24 +1039,33 @@ class _GuiStatusCommand extends Command<int> {
   Future<int> run() async {
     final stored = ModelsConfig.readGuiPreference();
 
-    stdout.writeln('Editor: $extensionId');
+    stdout.writeln('');
+    stdout.writeln(bold(headingLine('Report editor')));
+    stdout.writeln('');
+    stdout.writeln(labelled('Extension', extensionId, width: 10));
 
     if (!codeCliAvailable()) {
-      stdout.writeln('  The `code` command is not on PATH, so this cannot be '
-          'managed from here.');
-      stdout.writeln('  In VS Code: Command Palette → '
-          '"Shell Command: Install \'code\' command in PATH".');
+      stdout.writeln('  ${warnish('!')} `${resolvedEditor()}` is not on '
+          'PATH, so this cannot be managed from here.');
+      stdout.writeln('      ${dim('In VS Code: Command Palette → "Shell '
+          'Command: Install \'code\' command in PATH".')}');
       _reportAndroidStudio();
+      stdout.writeln('');
       return 0;
     }
 
-    stdout.writeln(guiInstalled() ? '  Installed.' : '  Not installed.');
-    stdout.writeln(switch (stored) {
-      true => '  You asked for it to be installed.',
-      false => '  You declined it; run `amscan gui install` to change that.',
-      null => '  You have not been asked yet.',
-    });
+    final here = guiInstalled();
+    stdout.writeln(
+      '  ${here ? good('✓') : dim('·')} ${resolvedEditor()}'
+      '${here ? '' : dim('  (not installed)')}',
+    );
+    stdout.writeln('      ${dim(switch (stored) {
+      true => 'you asked for it',
+      false => 'you declined it; `amscan gui install` changes that',
+      null => 'you have not been asked yet',
+    })}');
     _reportAndroidStudio();
+    stdout.writeln('');
     return 0;
   }
 }
@@ -1071,38 +1080,51 @@ class _GuiInstallCommand extends Command<int> {
 
   @override
   Future<int> run() async {
+    stdout.writeln('');
+    stdout.writeln(bold(headingLine('Installing the report editor')));
+    stdout.writeln('');
+
     final studio = _installForAndroidStudio();
 
-    final result = installGui();
+    final editor = resolvedEditor();
+    final result = installGui(editor: editor);
     ModelsConfig.writeGuiPreference(result.ok || studio);
 
     if (result.ok) {
-      stdout.writeln(switch (result.source!) {
-        GuiSource.marketplace => 'Installed $extensionId from the Marketplace.',
-        GuiSource.bundled =>
-          'Installed $extensionId from the copy shipped with this package.',
-      });
-      stdout.writeln('Reload the VS Code window for it to take effect '
-          '(Command Palette → "Developer: Reload Window").');
-      return 0;
+      stdout.writeln('  ${good('✓')} $editor');
+      stdout.writeln('      ${dim(switch (result.source!) {
+        GuiSource.marketplace => 'from the Marketplace',
+        GuiSource.bundled => 'from the copy shipped with this package',
+      })}');
+      stdout.writeln('      ${dim('Reload the window: Command Palette → '
+          '"Developer: Reload Window"')}');
+    } else {
+      stdout.writeln('  ${warnish('!')} $editor');
+      switch (result.problem!) {
+        case GuiProblem.noCodeCli:
+          stdout.writeln('      ${dim('`$editor` is not on PATH. In VS Code: '
+              'Command Palette →')}');
+          stdout.writeln('      ${dim('"Shell Command: Install \'code\' '
+              'command in PATH", then retry.')}');
+        case GuiProblem.unavailable:
+          stdout.writeln('      ${dim('Could not install $extensionId.')}');
+          if (result.detail.isNotEmpty) {
+            stdout.writeln('      ${dim(result.detail.split('\n').first)}');
+          }
+      }
     }
 
-    switch (result.problem!) {
-      case GuiProblem.noCodeCli:
-        stderr.writeln('The `code` command is not on PATH.');
-        stderr.writeln('In VS Code: Command Palette → '
-            '"Shell Command: Install \'code\' command in PATH", then retry.');
-      case GuiProblem.unavailable:
-        stderr.writeln('Could not install $extensionId.');
-        if (result.detail.isNotEmpty) {
-          stderr.writeln(result.detail);
-        }
-        stderr.writeln('The Markdown report works without it.');
+    stdout.writeln('');
+    if (!result.ok && !studio) {
+      stdout.writeln('  ${dim('Nothing was installed. The Markdown report '
+          'works without it.')}');
+      stdout.writeln('');
+      return 1;
     }
 
     // Android Studio having worked is still a success: the point of the
     // command is to end up with the editor somewhere it can be used.
-    return studio ? 0 : 1;
+    return 0;
   }
 }
 
@@ -1119,13 +1141,23 @@ bool _installForAndroidStudio() {
 
   final bundled = bundledIntellijPlugin();
   if (bundled == null) {
-    stdout.writeln('${ide.name} found, but no plugin is shipped with this '
-        'copy of the tool.');
+    stdout.writeln('  ${warnish('!')} ${ide.name}');
+    stdout.writeln('      ${dim('no plugin is shipped with this copy of the '
+        'tool')}');
     return false;
   }
 
-  installIntoAndroidStudio(ide, bundled, stdout.writeln);
-  return ide.hasPlugin;
+  installIntellijPlugin(ide: ide, source: bundled);
+
+  if (ide.hasPlugin) {
+    stdout.writeln('  ${good('✓')} ${ide.name}');
+    stdout.writeln('      ${dim('restart it to use the editor')}');
+    return true;
+  }
+
+  stdout.writeln('  ${warnish('!')} ${ide.name}');
+  stdout.writeln('      ${dim('could not copy the plugin in')}');
+  return false;
 }
 
 class _GuiUninstallCommand extends Command<int> {
@@ -1133,29 +1165,43 @@ class _GuiUninstallCommand extends Command<int> {
   String get name => 'uninstall';
 
   @override
-  String get description => 'Remove the VS Code editor for reports.';
+  String get description => 'Remove the report editor from every editor.';
 
   @override
   Future<int> run() async {
+    stdout.writeln('');
+    stdout.writeln(bold(headingLine('Removing the report editor')));
+    stdout.writeln('');
+
     // Recorded either way: `deactivate` cannot reach the editor, so the
     // answer has to survive for the next install to respect it.
     ModelsConfig.writeGuiPreference(false);
 
-    for (final ide in findJetBrainsIdes(roots: currentConfigRoots())) {
+    var removed = false;
+
+    for (final ide in orderedByVersion(
+      findJetBrainsIdes(roots: currentConfigRoots()),
+    )) {
       if (removeIntellijPlugin(ide)) {
-        stdout.writeln('Removed the plugin from ${ide.name}. '
-            'Restart it to finish.');
+        removed = true;
+        stdout.writeln('  ${good('✓')} ${ide.name}');
+        stdout.writeln('      ${dim('restart it to finish')}');
       }
     }
 
-    if (uninstallGui()) {
-      stdout.writeln('Removed $extensionId.');
-      return 0;
+    final editor = resolvedEditor();
+    if (uninstallGui(editor: editor)) {
+      removed = true;
+      stdout.writeln('  ${good('✓')} $editor');
+      stdout.writeln('      ${dim('removed $extensionId')}');
+    } else {
+      stdout.writeln('  ${dim('·')} $editor');
+      stdout.writeln('      ${dim('nothing to remove, or `$editor` is not '
+          'on PATH')}');
     }
 
-    stderr.writeln('Could not remove $extensionId — '
-        'it may not be installed, or `code` is not on PATH.');
-    return 1;
+    stdout.writeln('');
+    return removed ? 0 : 1;
   }
 }
 
@@ -1282,6 +1328,10 @@ class InitCommand extends Command<int> {
         'Yes — go through the questions again',
       ]);
       if (change != 1) {
+        // Settings are settled, but an editor that is missing is still worth
+        // offering: installing one is not changing a setting, and burying
+        // the offer behind this question means it is never seen again.
+        _offerMissingEditors();
         return 0;
       }
     }
@@ -1350,6 +1400,7 @@ class InitCommand extends Command<int> {
     _say('  ${good('✓')} Saved to ${homePath(written)}');
     _say('');
     _describeExisting(projectRoot).forEach(_say);
+    _noteMissingEditors();
     return 0;
   }
 
@@ -1549,6 +1600,43 @@ class InitCommand extends Command<int> {
     return _install(editor: editor);
   }
 
+  /// Says which editors could have the table but do not, without asking.
+  ///
+  /// The flag form must never prompt, but staying silent about an editor that
+  /// is one command away from working would be unhelpful.
+  void _noteMissingEditors() {
+    final studio =
+        newestJetBrainsIde(findJetBrainsIdes(roots: currentConfigRoots()));
+
+    final missing = <String>[
+      if (detectEditors().isNotEmpty && !guiInstalled(editor: resolvedEditor()))
+        resolvedEditor(),
+      if (studio != null && !studio.hasPlugin) studio.name,
+    ];
+
+    if (missing.isEmpty) {
+      return;
+    }
+
+    _say('');
+    _say('  ${dim('The report editor is not installed for '
+        '${missing.join(' or ')} — `amscan gui install` adds it.')}');
+  }
+
+  /// Offers whichever editors are not installed, changing no settings.
+  void _offerMissingEditors() {
+    final editor = resolvedEditor();
+
+    if (detectEditors().isNotEmpty && !guiInstalled(editor: editor)) {
+      final wanted = _askForGui(editor);
+      if (wanted != null) {
+        applyInit(InitAnswers(gui: wanted), projectRoot: _root);
+      }
+    }
+
+    _maybeOfferAndroidStudio();
+  }
+
   /// Offers the Android Studio editor when Android Studio is installed.
   ///
   /// Asked separately from the VS Code one because they are different
@@ -1660,11 +1748,11 @@ void _reportAndroidStudio() {
     return;
   }
   stdout.writeln('');
-  stdout.writeln('Plugin: $intellijPluginName');
+  stdout.writeln(labelled('Plugin', intellijPluginName, width: 10));
   for (final ide in orderedByVersion(ides)) {
     stdout.writeln(ide.hasPlugin
-        ? '  ${ide.name}: installed.'
-        : '  ${ide.name}: not installed.');
+        ? '  ${good('✓')} ${ide.name}'
+        : '  ${dim('·')} ${ide.name}${dim('  (not installed)')}');
   }
 }
 

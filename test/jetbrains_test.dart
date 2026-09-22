@@ -133,4 +133,35 @@ void main() {
       expect(removeIntellijPlugin(ide), isFalse);
     });
   });
+
+  group('comparing IDEs', () {
+    test('two handles on the same installation are equal', () {
+      // Without this, comparing a freshly-found IDE against the newest one —
+      // which is a different instance of the same thing — silently never
+      // matches, and code that looks obviously right does nothing.
+      const a = JetBrainsIde('Android Studio 2025.3.4', '/cfg/AndroidStudio2025.3.4');
+      const b = JetBrainsIde('Android Studio 2025.3.4', '/cfg/AndroidStudio2025.3.4');
+
+      expect(a, equals(b));
+      expect(a.hashCode, b.hashCode);
+    });
+
+    test('different installations are not equal', () {
+      const a = JetBrainsIde('AS', '/cfg/AndroidStudio2025.3.4');
+      const b = JetBrainsIde('AS', '/cfg/AndroidStudio2024.1');
+
+      expect(a, isNot(equals(b)));
+    });
+
+    test('the newest one found compares equal to a fresh lookup', () {
+      makeConfig('AndroidStudio2024.1');
+      makeConfig('AndroidStudio2025.3.4');
+      final roots = [p.join(temp.path, 'cfg')];
+
+      expect(
+        newestJetBrainsIde(findJetBrainsIdes(roots: roots)),
+        equals(newestJetBrainsIde(findJetBrainsIdes(roots: roots))),
+      );
+    });
+  });
 }
