@@ -82,6 +82,14 @@ String resolvedEditor() {
   return detected.isEmpty ? 'code' : detected.first;
 }
 
+/// The editor commands to offer as a choice, given what [detected] found.
+///
+/// Falling back to every known editor keeps the question answerable on a
+/// machine where none is on PATH yet: the choice is recorded now, and
+/// `gui install` says plainly if it cannot act on it.
+List<String> editorChoices(List<String> detected) =>
+    detected.isEmpty ? knownEditors : detected;
+
 /// Whether [command] answers `--version`.
 bool _onPath(String command) => _run(command, ['--version']) != null;
 

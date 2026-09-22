@@ -54,4 +54,16 @@ void main() {
       expect(tried.map((c) => c.first), isNot(contains('')));
     });
   });
+
+  group('what init offers to choose from', () {
+    test('the installed ones, when any are installed', () {
+      expect(editorChoices(const ['code', 'cursor']), ['code', 'cursor']);
+    });
+
+    test('every one it knows, when none are', () {
+      // Still a choice worth making: the setting can be recorded now and the
+      // editor installed later, and `gui install` says so if it cannot run.
+      expect(editorChoices(const []), knownEditors);
+    });
+  });
 }

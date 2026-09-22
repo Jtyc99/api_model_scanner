@@ -1332,9 +1332,7 @@ class InitCommand extends Command<int> {
 
     if (!_forProject) {
       editor = _askForEditor();
-      if (editor != null) {
-        gui = _askForGui(editor);
-      }
+      gui = _askForGui(editor);
     }
 
     // A project run with nothing to say writes nothing, so there is no file
@@ -1427,36 +1425,45 @@ class InitCommand extends Command<int> {
     }
   }
 
-  /// Picks the editor command, asking only when there is a real choice.
-  String? _askForEditor() {
-    final found = detectEditors();
+  /// Settles which editor command to drive.
+  ///
+  /// One installed editor is not a choice, so it is taken and named rather
+  /// than put to a vote. Several is a real choice, and none still is — the
+  /// setting can be recorded now and the editor installed later.
+  String _askForEditor() {
+    final detected = detectEditors();
 
-    if (found.isEmpty) {
+    if (detected.length == 1) {
       _say('');
-      _say('No editor command on PATH (looked for '
-          '${knownEditors.join(', ')}).');
+      _say('Editor: ${detected.single} (Auto detected)');
+      return detected.single;
+    }
+
+    final options = editorChoices(detected);
+
+    _say('');
+    if (detected.isEmpty) {
+      _say('No editor command is on PATH, so none of these can be checked.');
       _say('In VS Code: Command Palette → '
           '"Shell Command: Install \'code\' command in PATH".');
       _say('');
-      return null;
     }
 
-    if (found.length == 1) {
-      _say('');
-      _say('Editor: ${found.single}');
-      return found.single;
-    }
+    final labels = [
+      for (final command in options)
+        detected.contains(command) ? '$command (Auto detected)' : command,
+    ];
 
     final current = ModelsConfig.readEditor();
-    final at = found.indexOf(current ?? '');
+    final at = options.indexOf(current ?? '');
 
-    _say('');
     final chosen = selectSingle(
       '  Which editor should amscan use?',
-      found,
+      labels,
       defaultIndex: at < 0 ? 0 : at,
     );
-    return found[chosen];
+
+    return options[chosen];
   }
 
   /// Offers the report editor, and installs it on a yes.
