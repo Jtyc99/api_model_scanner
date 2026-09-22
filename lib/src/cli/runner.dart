@@ -1186,6 +1186,12 @@ class _GuiInstallCommand extends Command<int> {
     stdout.writeln(bold(headingLine('Installing the report editor')));
     stdout.writeln('');
 
+    final host = hostIdeLabel(currentHostIde());
+    if (host != null) {
+      stdout.writeln(labelled('Terminal', '$host ${dim('(Auto detected)')}'));
+      stdout.writeln('');
+    }
+
     final targets = currentEditorTargets();
 
     if (targets.isEmpty) {
@@ -1470,6 +1476,12 @@ class InitCommand extends Command<int> {
     _say('');
     _say(bold(headingLine('Setting up api_model_scanner')));
     _say('');
+
+    final host = hostIdeLabel(currentHostIde());
+    if (host != null) {
+      _say(labelled('Terminal', '$host ${dim('(Auto detected)')}'));
+      _say('');
+    }
 
     final inProject = looksLikeDartProject(projectRoot);
     String? models;

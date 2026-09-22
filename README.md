@@ -209,8 +209,11 @@ writes to the same Markdown file, so nothing depends on it being installed.
 **Android Studio** gets the same table, as an IntelliJ plugin — see
 [editors/intellij](editors/intellij). `.vsix` is VS Code's format and could
 never load there, so it is a separate build. `init` offers whichever editor you
-are most likely to be using — VS Code or a fork if one is on PATH, otherwise
-Android Studio — and `gui install` asks which, so you can have both. A JetBrains
+are most likely to be using. Both IDEs name themselves in their terminal's
+environment, so running `amscan init` from Android Studio's terminal offers
+the plugin and running it from VS Code's offers the extension — whatever else
+is installed on the machine. Failing that, VS Code and its forks come first.
+`gui install` asks which, so you can have both. A JetBrains
 IDE only notices a new plugin when it restarts.
 
 It works in the VS Code forks too. They keep the same extension CLI, so

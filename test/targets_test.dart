@@ -121,4 +121,87 @@ void main() {
       expect(offerableTarget(const []), isNull);
     });
   });
+
+  group('working out which IDE the terminal belongs to', () {
+    test('VS Code says so', () {
+      expect(
+        detectHostIde(const {'TERM_PROGRAM': 'vscode'}),
+        HostIde.vsCode,
+      );
+    });
+
+    test('a JetBrains terminal says so', () {
+      expect(
+        detectHostIde(const {'TERMINAL_EMULATOR': 'JetBrains-JediTerm'}),
+        HostIde.jetBrains,
+      );
+    });
+
+    test('an IntelliJ shell that only sets its history file still counts', () {
+      expect(
+        detectHostIde(const {'__INTELLIJ_COMMAND_HISTFILE__': '/tmp/h'}),
+        HostIde.jetBrains,
+      );
+    });
+
+    test('a plain terminal belongs to nothing', () {
+      expect(detectHostIde(const {'TERM': 'xterm-256color'}), isNull);
+      expect(detectHostIde(const {}), isNull);
+    });
+
+    test('a JetBrains terminal wins over an inherited TERM_PROGRAM', () {
+      // Opening a JetBrains terminal from a VS Code session leaves the older
+      // variable behind; the innermost one is the one you are typing into.
+      expect(
+        detectHostIde(const {
+          'TERM_PROGRAM': 'vscode',
+          'TERMINAL_EMULATOR': 'JetBrains-JediTerm',
+        }),
+        HostIde.jetBrains,
+      );
+    });
+  });
+
+  group('ordering targets by the IDE you are in', () {
+    test('a JetBrains terminal puts Android Studio first', () {
+      final targets = editorTargets(
+        editors: const ['code'],
+        ides: [ide('2025.3.4')],
+        host: HostIde.jetBrains,
+      );
+
+      expect(targets.first, isA<AndroidStudioTarget>());
+    });
+
+    test('a VS Code terminal puts VS Code first', () {
+      final targets = editorTargets(
+        editors: const ['code'],
+        ides: [ide('2025.3.4')],
+        host: HostIde.vsCode,
+      );
+
+      expect(targets.first, isA<VsCodeTarget>());
+    });
+
+    test('an unknown host keeps the default order', () {
+      final targets = editorTargets(
+        editors: const ['code'],
+        ides: [ide('2025.3.4')],
+      );
+
+      expect(targets.first, isA<VsCodeTarget>());
+    });
+
+    test('ordering never drops a target', () {
+      final targets = editorTargets(
+        editors: const ['code', 'cursor'],
+        ides: [ide('2025.3.4')],
+        host: HostIde.jetBrains,
+      );
+
+      expect(targets.map((t) => t.label),
+          containsAll(['code', 'cursor', 'Android Studio 2025.3.4']));
+      expect(targets, hasLength(3));
+    });
+  });
 }
