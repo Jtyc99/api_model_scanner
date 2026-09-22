@@ -215,20 +215,3 @@ String? _packageRoot() {
     return null;
   }
 }
-
-/// Installs the bundled plugin into [ide], reporting through [say].
-///
-/// Shared by `init` and `gui install` so both say the same thing — including
-/// that a JetBrains IDE only notices a new plugin when it restarts.
-void installIntoAndroidStudio(
-  JetBrainsIde ide,
-  String source,
-  void Function(String) say,
-) {
-  try {
-    installIntellijPlugin(ide: ide, source: source);
-    say('  Installed for ${ide.name}. Restart it to use the editor.');
-  } on FileSystemException catch (e) {
-    say('  Could not install it: ${e.message}');
-  }
-}

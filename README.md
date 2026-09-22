@@ -208,8 +208,9 @@ writes to the same Markdown file, so nothing depends on it being installed.
 
 **Android Studio** gets the same table, as an IntelliJ plugin — see
 [editors/intellij](editors/intellij). `.vsix` is VS Code's format and could
-never load there, so it is a separate build. `init` offers it when it finds an
-Android Studio installation, and `gui install` installs into both. A JetBrains
+never load there, so it is a separate build. `init` offers whichever editor you
+are most likely to be using — VS Code or a fork if one is on PATH, otherwise
+Android Studio — and `gui install` asks which, so you can have both. A JetBrains
 IDE only notices a new plugin when it restarts.
 
 It works in the VS Code forks too. They keep the same extension CLI, so
@@ -262,8 +263,8 @@ than a broken build.
 | `scan` | Find unused fields, write and open the report |
 | `remove` | Delete ticked code, then tidy imports and empty files |
 | `disable` | Comment out ticked code, or `--undo` / `--remove` what is commented |
-| `gui install` | Install the table editor into every editor found |
-| `gui uninstall` | Remove it — `dart pub global deactivate` cannot |
+| `gui install` | Install the table editor — asks which editor or IDE |
+| `gui uninstall` | Remove it — asks which editor or IDE |
 | `gui status` | Show whether it is installed, and what you answered |
 | `clear` | Delete this project's cached results (keeps your settings) |
 | `uninstall` | Remove the editor, every setting, and the tool itself |

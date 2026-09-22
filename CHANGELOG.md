@@ -49,9 +49,11 @@ AST-aware source edits.
 
 ### The editors
 
-- Android Studio gets the same table as a plugin. `init` offers it when it
-  finds an installation, `gui install` installs into both editors, and
-  `gui status`, `gui uninstall` and `uninstall` cover both. A JetBrains IDE
+- Android Studio gets the same table as a plugin. `init` offers one editor —
+  VS Code or a fork when one is on PATH, otherwise Android Studio — since a
+  first run should not be a procession of install prompts. `gui install` and
+  `gui uninstall` ask which editor to act on, so both can have it; `gui
+  status` and `uninstall` cover both. A JetBrains IDE
   has no supported way to install a plugin from a local file on the command
   line, so this copies the unpacked plugin into the IDE's `plugins` directory
   the way the IDE itself would — which is why it is shipped unpacked rather
