@@ -12,7 +12,14 @@ neither is required and the two can be used on the same repository.
 | | |
 |---|---|
 | `report/` | The parser and cascade. **No IntelliJ dependency at all** — a separate Gradle module so that is enforced by the build, not by discipline. Mirrors `editors/vscode/src/report.ts`. |
-| `src/` | The editor: a `FileEditorProvider` and a table bound to the document. |
+| `src/` | The editor: a `FileEditorProvider`, the IDE's embedded browser, and the bridge between the two. |
+
+The table is drawn in JCEF rather than a Swing `JTable`, because the layout
+that makes a report readable — a class cell spanning its fields' rows, a field
+cell spanning its parts' — is a `rowspan`, and `JTable` has no equivalent. It
+also means both editors render from one piece of markup, so they cannot drift
+apart visually. Where the IDE has no embedded browser, the tab says so and
+points at the Markdown editor beside it.
 
 ## Building
 
@@ -44,5 +51,8 @@ a local file, which is why this copies into the plugins directory directly.
 
 ## Not yet verified
 
-The table has never been on screen. `:report` is tested; the editor compiles
-against the real platform API, and that is the whole of what is known.
+The table's markup is a port of `editors/vscode/src/webview.ts` and has never
+been compared to it on screen. `:report` is tested — parsing, cascade, rows,
+JSON and messages — and the editor compiles against the real platform API.
+Whether JCEF renders it, and whether the bridge carries a click back, is only
+known by looking.

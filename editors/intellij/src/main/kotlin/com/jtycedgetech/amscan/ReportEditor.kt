@@ -1,34 +1,42 @@
 package com.jtycedgetech.amscan
 
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.event.DocumentEvent
 import com.intellij.openapi.editor.event.DocumentListener
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.fileEditor.FileEditor
+import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileEditor.FileEditorState
 import com.intellij.openapi.fileEditor.OpenFileDescriptor
+import com.intellij.openapi.fileEditor.impl.text.TextEditorProvider
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.UserDataHolderBase
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VirtualFile
-import com.intellij.ui.components.JBScrollPane
-import com.intellij.ui.table.JBTable
-import java.awt.BorderLayout
-import java.awt.event.MouseAdapter
-import java.awt.event.MouseEvent
+import com.intellij.ui.jcef.JBCefApp
+import com.intellij.ui.jcef.JBCefBrowser
+import com.intellij.ui.jcef.JBCefBrowserBase
+import com.intellij.ui.jcef.JBCefJSQuery
 import java.beans.PropertyChangeListener
 import javax.swing.JComponent
-import javax.swing.JPanel
-import javax.swing.ListSelectionModel
-import javax.swing.table.AbstractTableModel
+import javax.swing.JLabel
+import javax.swing.SwingConstants
 
 /**
- * Shows a report as a table of checkbox cells.
+ * Shows a report as a real table with checkbox cells.
  *
- * Every toggle is a one-character edit to the same Markdown the CLI reads, so
- * this editor is a nicer way to write a file that would work just as well
- * typed by hand. Nothing is stored here that is not in the document.
+ * Drawn in the IDE's embedded browser rather than a Swing table, because the
+ * layout that makes the report readable — a class cell spanning its fields'
+ * rows, a field cell spanning its parts' — is a `rowspan`, and `JTable` has
+ * no equivalent. It also means this and the VS Code editor render from one
+ * piece of markup, so they cannot drift apart visually.
+ *
+ * Every toggle is a one-character edit to the same Markdown the CLI reads.
+ * The document is the only state: an edit made in the Markdown tab beside
+ * this one, or by the CLI, redraws the table the same way.
  */
 class ReportEditor(
   private val project: Project,
@@ -37,107 +45,125 @@ class ReportEditor(
 
   private val document: Document? = FileDocumentManager.getInstance().getDocument(file)
 
-  private var rows: List<Row> = emptyList()
+  private val browser: JBCefBrowser? =
+    if (JBCefApp.isSupported()) JBCefBrowser() else null
 
-  private val model = object : AbstractTableModel() {
-    override fun getRowCount() = rows.size
-    override fun getColumnCount() = 3
+  private val bridge: JBCefJSQuery? =
+    browser?.let { JBCefJSQuery.create(it as JBCefBrowserBase) }
 
-    override fun getColumnName(column: Int) = when (column) {
-      COLUMN_TICK -> ""
-      COLUMN_LABEL -> "Field"
-      else -> "Line"
-    }
+  /** Shown only when the IDE has no embedded browser to draw into. */
+  private val unavailable = JLabel(
+    "<html><p style='padding:16px'>This IDE has no embedded browser, so the " +
+      "table cannot be drawn.<br>The report is ordinary Markdown — use the " +
+      "Markdown tab beside this one.</p></html>",
+    SwingConstants.LEFT,
+  )
 
-    override fun getColumnClass(column: Int): Class<*> =
-      if (column == COLUMN_TICK) java.lang.Boolean::class.java else String::class.java
-
-    // Only the tick is editable. The label and line are what the document
-    // says, and typing over them here would mean nothing.
-    override fun isCellEditable(row: Int, column: Int) =
-      column == COLUMN_TICK && rows[row].boxLine >= 0
-
-    override fun getValueAt(row: Int, column: Int): Any {
-      val entry = rows[row]
-      return when (column) {
-        COLUMN_TICK -> entry.checked
-        COLUMN_LABEL -> entry.label
-        else -> entry.sourceLine?.toString() ?: ""
-      }
-    }
-
-    override fun setValueAt(value: Any?, row: Int, column: Int) {
-      if (column != COLUMN_TICK) return
-      toggle(rows[row], value as? Boolean ?: return)
-    }
-  }
-
-  private val table = JBTable(model).apply {
-    setShowGrid(false)
-    rowSelectionAllowed = true
-    selectionModel.selectionMode = ListSelectionModel.SINGLE_SELECTION
-    columnModel.getColumn(COLUMN_TICK).apply { maxWidth = 34; minWidth = 34 }
-    columnModel.getColumn(COLUMN_LINE).apply { maxWidth = 70; minWidth = 50 }
-
-    addMouseListener(object : MouseAdapter() {
-      override fun mouseClicked(event: MouseEvent) {
-        if (event.clickCount < 2) return
-        val row = rowAtPoint(event.point).takeIf { it >= 0 } ?: return
-        navigateTo(rows[row])
-      }
-    })
-  }
-
-  private val panel = JPanel(BorderLayout()).apply {
-    add(JBScrollPane(table), BorderLayout.CENTER)
-  }
-
-  private val listener = object : DocumentListener {
-    // The document is the only state, so an edit from anywhere — this table,
-    // the Markdown tab beside it, or the CLI — redraws the same way.
-    override fun documentChanged(event: DocumentEvent) = reload()
+  private val documentListener = object : DocumentListener {
+    override fun documentChanged(event: DocumentEvent) = push()
   }
 
   init {
-    document?.addDocumentListener(listener, this)
-    reload()
+    browser?.let { Disposer.register(this, it) }
+    bridge?.let { Disposer.register(this, it) }
+
+    bridge?.addHandler { raw ->
+      handle(raw)
+      null
+    }
+
+    browser?.let { view ->
+      // The bridge is injected under the name the markup calls, so the same
+      // script works here and in VS Code, where it is `postMessage`.
+      view.jbCefClient.addLoadHandler(
+        object : org.cef.handler.CefLoadHandlerAdapter() {
+          override fun onLoadEnd(
+            cefBrowser: org.cef.browser.CefBrowser?,
+            frame: org.cef.browser.CefFrame?,
+            httpStatusCode: Int,
+          ) {
+            val call = bridge!!.inject("message")
+            cefBrowser?.executeJavaScript(
+              "window.__amscanSend = function (message) { $call };",
+              cefBrowser.url,
+              0,
+            )
+            push()
+          }
+        },
+        view.cefBrowser,
+      )
+
+      view.loadHTML(renderHtml(ReportTheme.current()))
+    }
+
+    document?.addDocumentListener(documentListener, this)
   }
 
-  private fun reload() {
-    val text = document?.text ?: file.inputStream.bufferedReader().readText()
-    rows = flatten(parseReport(text))
-    model.fireTableDataChanged()
+  /** Sends the current document to the table. */
+  private fun push() {
+    val view = browser ?: return
+    val text = document?.text ?: return
+    val json = parseReport(text).toJson()
+
+    ApplicationManager.getApplication().invokeLater {
+      view.cefBrowser.executeJavaScript(
+        "window.__amscanUpdate && window.__amscanUpdate(${jsonString(json)});",
+        view.cefBrowser.url,
+        0,
+      )
+    }
+  }
+
+  /** Handles one message from the table. */
+  private fun handle(raw: String) {
+    val message = parseMessage(raw) ?: return
+
+    ApplicationManager.getApplication().invokeLater {
+      when (message.type) {
+        "set" -> {
+          val line = message.line ?: return@invokeLater
+          setSelection(line, message.checked)
+        }
+        "open" -> openSource(message.file ?: return@invokeLater, message.line)
+        "openAsText" -> openAsText()
+      }
+    }
   }
 
   /** Applies the cascade for one row, as a single undoable edit. */
-  private fun toggle(row: Row, checked: Boolean) {
+  private fun setSelection(line: Int, checked: Boolean) {
     val target = document ?: return
-    if (row.boxLine < 0) return
+    val states = desiredStates(parseReport(target.text), line, checked)
+    if (states.isEmpty()) return
 
-    val report = parseReport(target.text)
-    val states = desiredStates(report, row.boxLine, checked)
-
-    WriteCommandAction.runWriteCommandAction(project, "Toggle Report Selection", null, {
-      // Recomputed against the live text each time, so the offsets cannot go
+    WriteCommandAction.runWriteCommandAction(project, "Change Report Selection", null, {
+      // Recomputed against the live text each time, so offsets cannot go
       // stale between edits in the same batch.
-      for ((line, wanted) in states) {
-        val edit = setBox(target.text, line, wanted) ?: continue
+      for ((at, wanted) in states) {
+        val edit = setBox(target.text, at, wanted) ?: continue
         val start = target.getLineStartOffset(edit.line) + edit.column
         target.replaceString(start, start + 1, edit.replacement.toString())
       }
     })
   }
 
-  /** Opens the Dart source a row names, at its line. */
-  private fun navigateTo(row: Row) {
-    val path = row.file ?: return
+  private fun openSource(path: String, line: Int?) {
     val target = LocalFileSystem.getInstance().findFileByPath(path) ?: return
     // OpenFileDescriptor takes a 0-based line; the report records 1-based.
-    OpenFileDescriptor(project, target, (row.sourceLine ?: 1) - 1, 0).navigate(true)
+    OpenFileDescriptor(project, target, ((line ?: 1) - 1).coerceAtLeast(0), 0)
+      .navigate(true)
   }
 
-  override fun getComponent(): JComponent = panel
-  override fun getPreferredFocusedComponent(): JComponent = table
+  /** Opens the same file in the plain text editor, beside this tab. */
+  private fun openAsText() {
+    val manager = FileEditorManager.getInstance(project)
+    manager.openFile(file, true)
+    manager.setSelectedEditor(file, TextEditorProvider.getInstance().editorTypeId)
+  }
+
+  override fun getComponent(): JComponent = browser?.component ?: unavailable
+  override fun getPreferredFocusedComponent(): JComponent? = browser?.component
   override fun getName(): String = "Report"
   override fun setState(state: FileEditorState) = Unit
   override fun isModified(): Boolean = false
@@ -146,10 +172,4 @@ class ReportEditor(
   override fun removePropertyChangeListener(listener: PropertyChangeListener) = Unit
   override fun getFile(): VirtualFile = file
   override fun dispose() = Unit
-
-  private companion object {
-    const val COLUMN_TICK = 0
-    const val COLUMN_LABEL = 1
-    const val COLUMN_LINE = 2
-  }
 }
