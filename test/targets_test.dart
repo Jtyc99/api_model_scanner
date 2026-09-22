@@ -85,4 +85,40 @@ void main() {
       expect(targets.map((t) => t.label), ['Android Studio 2025.3.4']);
     });
   });
+
+  group('which one init should offer', () {
+    test('the preferred editor, when it has not got it yet', () {
+      final target = offerableTarget(editorTargets(
+        editors: const [],
+        ides: [ide('2025.3.4')],
+      ));
+
+      expect(target, isA<AndroidStudioTarget>());
+    });
+
+    test('skips one that already has it and offers the next', () {
+      // The case that made init silent: the preferred editor is detected and
+      // already set up, so there is nothing to offer there — but the next
+      // one is sitting right behind it without the editor.
+      final target = offerableTarget([
+        AndroidStudioTarget(ide('2025.3.4', withPlugin: true)),
+        AndroidStudioTarget(ide('2024.1')),
+      ]);
+
+      expect(target!.label, 'Android Studio 2024.1');
+    });
+
+    test('nothing to offer once every editor has it', () {
+      expect(
+        offerableTarget([
+          AndroidStudioTarget(ide('2025.3.4', withPlugin: true)),
+        ]),
+        isNull,
+      );
+    });
+
+    test('nothing to offer when there is no editor at all', () {
+      expect(offerableTarget(const []), isNull);
+    });
+  });
 }

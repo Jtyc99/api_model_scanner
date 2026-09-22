@@ -65,3 +65,18 @@ List<EditorTarget> currentEditorTargets() => editorTargets(
       editors: detectEditors(),
       ides: findJetBrainsIdes(roots: currentConfigRoots()),
     );
+
+/// The target `init` should offer: the first that has not got it already.
+///
+/// Stopping at the first target rather than the first *offerable* one is what
+/// made `init` go quiet on a machine with VS Code already set up — it had
+/// nothing to say about VS Code, and never looked past it to the Android
+/// Studio sitting behind it without the plugin.
+EditorTarget? offerableTarget(List<EditorTarget> targets) {
+  for (final target in targets) {
+    if (!target.installed) {
+      return target;
+    }
+  }
+  return null;
+}

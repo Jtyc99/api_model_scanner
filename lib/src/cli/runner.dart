@@ -1151,15 +1151,25 @@ EditorTarget? chooseTarget(List<EditorTarget> targets, String question) {
   if (targets.length == 1) {
     return targets.single;
   }
+
+  // The one that has not got it yet is the useful default — and the only
+  // sensible choice when there is nobody to ask, since reinstalling over an
+  // editor that already works achieves nothing. For `uninstall` every target
+  // is installed, so this falls through to the first.
+  final wanting = offerableTarget(targets);
+  final at = wanting == null ? 0 : targets.indexOf(wanting);
+
   if (!canPrompt) {
-    return targets.first;
+    return targets[at];
   }
+
   return targets[selectSingle(
     question,
     [
       for (final target in targets)
         '${target.label}${target.installed ? dim('  (installed)') : ''}',
     ],
+    defaultIndex: at,
   )];
 }
 
@@ -1575,9 +1585,7 @@ class InitCommand extends Command<int> {
   /// The flag form must never prompt, but staying silent about an editor
   /// that is one command away from working would be unhelpful.
   void _noteMissingEditors() {
-    final target = currentEditorTargets()
-        .where((candidate) => !candidate.installed)
-        .firstOrNull;
+    final target = offerableTarget(currentEditorTargets());
     if (target == null) {
       return;
     }
@@ -1597,16 +1605,20 @@ class InitCommand extends Command<int> {
   /// Returns an answer only for a VS Code target, since that is the one the
   /// config records; null when nothing was asked or the target was an IDE.
   bool? _offerReportEditor() {
-    final target = currentEditorTargets().firstOrNull;
-    if (target == null) {
-      return null;
-    }
+    final targets = currentEditorTargets();
 
-    if (target.installed) {
-      _say('');
-      _say('  ${good('✓')} The report editor is already installed for '
-          '${target.label}.');
-      return target is VsCodeTarget ? true : null;
+    // The first that has not got it, not simply the first: with VS Code
+    // already set up there is nothing to offer there, and stopping at it
+    // would hide an Android Studio behind it that has no plugin.
+    final target = offerableTarget(targets);
+
+    if (target == null) {
+      if (targets.isNotEmpty) {
+        _say('');
+        _say('  ${good('✓')} The report editor is installed for '
+            '${targets.map((t) => t.label).join(' and ')}.');
+      }
+      return null;
     }
 
     _say('');
