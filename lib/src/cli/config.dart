@@ -76,15 +76,51 @@ class ModelsConfig {
     return value is bool ? value : null;
   }
 
-  static void writeGuiPreference(bool wanted, {String? globalConfigPath}) {
-    final path = globalConfigPath ?? globalPath();
-    final existing = _readKey(path, 'models');
+  static void writeGuiPreference(bool wanted, {String? globalConfigPath}) =>
+      _writeKey(globalConfigPath ?? globalPath(), 'gui', wanted);
+
+  /// Which editor command manages the extension and opens the report.
+  ///
+  /// Null means nothing was chosen, and the caller falls back to probing.
+  /// Machine-wide for the same reason as the gui answer: an editor is
+  /// installed per machine, not per repository.
+  static String? readEditor({String? globalConfigPath}) {
+    final value = _readKey(globalConfigPath ?? globalPath(), 'editor');
+    return value is String && value.trim().isNotEmpty ? value.trim() : null;
+  }
+
+  static void writeEditor(String command, {String? globalConfigPath}) =>
+      _writeKey(globalConfigPath ?? globalPath(), 'editor', command.trim());
+
+  /// Sets one key, leaving every other key in the file untouched.
+  ///
+  /// Reading the whole map rather than the keys this tool knows about means a
+  /// config written by a newer version keeps its settings when an older one
+  /// writes to it.
+  static void _writeKey(String path, String key, Object? value) {
+    final existing = <String, dynamic>{};
+
+    final file = File(path);
+    if (file.existsSync()) {
+      try {
+        final decoded = jsonDecode(file.readAsStringSync());
+        if (decoded is Map<String, dynamic>) {
+          existing.addAll(decoded);
+        }
+      } catch (_) {
+        // A corrupt file is replaced rather than allowed to block the write.
+      }
+    }
+
+    if (value == null) {
+      existing.remove(key);
+    } else {
+      existing[key] = value;
+    }
+
     Directory(p.dirname(path)).createSync(recursive: true);
-    File(path).writeAsStringSync(
-      '${const JsonEncoder.withIndent('  ').convert({
-            if (existing is String) 'models': existing,
-            'gui': wanted,
-          })}\n',
+    file.writeAsStringSync(
+      '${const JsonEncoder.withIndent('  ').convert(existing)}\n',
     );
   }
 
@@ -119,16 +155,8 @@ class ModelsConfig {
     return null;
   }
 
-  static void _write(String path, String models) {
-    final gui = _readKey(path, 'gui');
-    Directory(p.dirname(path)).createSync(recursive: true);
-    File(path).writeAsStringSync(
-      '${const JsonEncoder.withIndent('  ').convert({
-            'models': models,
-            if (gui is bool) 'gui': gui,
-          })}\n',
-    );
-  }
+  static void _write(String path, String models) =>
+      _writeKey(path, 'models', models);
 
   static String? readProject(String projectRoot) =>
       _read(projectPath(projectRoot));

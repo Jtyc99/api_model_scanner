@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:api_model_scanner/src/cli/config.dart';
@@ -140,6 +141,44 @@ void main() {
       Directory(p.dirname(path)).createSync(recursive: true);
       File(path).writeAsStringSync('{ broken');
       expect(ModelsConfig.readGuiPreference(globalConfigPath: path), isNull);
+    });
+  });
+
+  group('the editor command', () {
+    String globalAt() => p.join(temp.path, 'global', 'config.json');
+
+    test('round-trips through the global config', () {
+      ModelsConfig.writeEditor('cursor', globalConfigPath: globalAt());
+      expect(ModelsConfig.readEditor(globalConfigPath: globalAt()), 'cursor');
+    });
+
+    test('settings do not clobber one another, in any order', () {
+      ModelsConfig.writeEditor('windsurf', globalConfigPath: globalAt());
+      ModelsConfig.writeGuiPreference(true, globalConfigPath: globalAt());
+      ModelsConfig.writeGlobalTo(globalAt(), 'lib/models');
+
+      expect(ModelsConfig.readEditor(globalConfigPath: globalAt()), 'windsurf');
+      expect(
+        ModelsConfig.readGuiPreference(globalConfigPath: globalAt()),
+        isTrue,
+      );
+      expect(
+        ModelsConfig.resolve(temp.path, globalConfigPath: globalAt())!.relative,
+        'lib/models',
+      );
+    });
+
+    test('an unknown key written by a newer version survives a write', () {
+      final path = globalAt();
+      Directory(p.dirname(path)).createSync(recursive: true);
+      File(path).writeAsStringSync('{"models": "lib/a", "future": "keep me"}');
+
+      ModelsConfig.writeEditor('code', globalConfigPath: path);
+
+      final json =
+          jsonDecode(File(path).readAsStringSync()) as Map<String, dynamic>;
+      expect(json['future'], 'keep me');
+      expect(json['models'], 'lib/a');
     });
   });
 
