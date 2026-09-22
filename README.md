@@ -135,9 +135,11 @@ so nothing can do this for you:
 amscan init
 ```
 
-It looks through `lib/` for classes that declare `fromJson`/`toJson`, offers
-the directories it found so you can pick rather than type, asks which editor
-command to use if more than one is installed, and offers the report editor.
+It asks where your API model classes live — a directory, or one `.dart` file,
+relative to the project root — and says how many model classes it found there,
+so a wrong path shows up immediately rather than at the next scan. It re-asks
+on a path it cannot use. It then asks which editor command to use if more than
+one is installed, and offers the report editor.
 
 For a repo that keeps its models somewhere else:
 

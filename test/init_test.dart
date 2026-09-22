@@ -31,37 +31,51 @@ class User {
     test('a directory of model classes is accepted', () async {
       write('lib/models/user.dart', aModel);
 
-      expect(
-        await checkModelsPath(projectRoot: temp.path, relative: 'lib/models'),
-        ModelsPathVerdict.ok,
-      );
+      final checked =
+          await checkModelsPath(projectRoot: temp.path, relative: 'lib/models');
+
+      expect(checked.verdict, ModelsPathVerdict.ok);
+    });
+
+    test('it says how many model classes are there', () async {
+      write('lib/models/user.dart', aModel);
+      write('lib/models/order.dart', aModel.replaceAll('User', 'Order'));
+
+      final checked =
+          await checkModelsPath(projectRoot: temp.path, relative: 'lib/models');
+
+      expect(checked.classCount, 2,
+          reason: 'the count confirms the path was the right one');
     });
 
     test('a single model file is accepted', () async {
       write('lib/models/user.dart', aModel);
 
       expect(
-        await checkModelsPath(
+        (await checkModelsPath(
           projectRoot: temp.path,
           relative: 'lib/models/user.dart',
-        ),
+        ))
+            .verdict,
         ModelsPathVerdict.ok,
       );
     });
 
     test('a path outside the project is refused', () async {
       expect(
-        await checkModelsPath(
+        (await checkModelsPath(
           projectRoot: temp.path,
           relative: '../elsewhere',
-        ),
+        ))
+            .verdict,
         ModelsPathVerdict.outsideProject,
       );
     });
 
     test('a path that is not there is refused', () async {
       expect(
-        await checkModelsPath(projectRoot: temp.path, relative: 'lib/nope'),
+        (await checkModelsPath(projectRoot: temp.path, relative: 'lib/nope'))
+            .verdict,
         ModelsPathVerdict.missing,
       );
     });
@@ -70,10 +84,11 @@ class User {
       write('lib/models/notes.txt', 'nope');
 
       expect(
-        await checkModelsPath(
+        (await checkModelsPath(
           projectRoot: temp.path,
           relative: 'lib/models/notes.txt',
-        ),
+        ))
+            .verdict,
         ModelsPathVerdict.notADartFile,
       );
     });
@@ -83,7 +98,8 @@ class User {
       write('lib/widgets/button.dart', 'class Button {}');
 
       expect(
-        await checkModelsPath(projectRoot: temp.path, relative: 'lib/widgets'),
+        (await checkModelsPath(projectRoot: temp.path, relative: 'lib/widgets'))
+            .verdict,
         ModelsPathVerdict.noModelClasses,
       );
     });

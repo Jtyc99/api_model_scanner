@@ -1262,10 +1262,10 @@ class InitCommand extends Command<int> {
         p.isAbsolute(models) ? p.relative(models, from: projectRoot) : models,
       );
 
-      final verdict =
+      final checked =
           await checkModelsPath(projectRoot: projectRoot, relative: relative);
 
-      if (verdict == ModelsPathVerdict.outsideProject) {
+      if (checked.verdict == ModelsPathVerdict.outsideProject) {
         stderr.writeln('That directory is outside the project: $models');
         return 64;
       }
@@ -1273,7 +1273,7 @@ class InitCommand extends Command<int> {
       // Anything else is only a warning. A machine-wide default names a
       // directory that need not exist *here*, and a setter that refused
       // would be unusable from a script.
-      final note = _warningFor(verdict, relative);
+      final note = _warningFor(checked.verdict, relative);
       if (note != null) {
         stderr.writeln('Warning: $note');
       }
@@ -1367,75 +1367,46 @@ class InitCommand extends Command<int> {
     return 0;
   }
 
-  /// Offers the directories that look like they hold models.
+  /// Asks where the models live, and keeps asking while the answer cannot
+  /// be used.
+  ///
+  /// Unlike the non-interactive setter this re-asks, since there is somebody
+  /// there to correct the typo. Blank keeps whatever is already set, or skips
+  /// when nothing is.
   Future<String?> _askForModels(String projectRoot) async {
-    _say('Looking for model classes…');
-
-    final candidates = await findModelsCandidates(projectRoot: projectRoot);
     final current = _forProject
         ? ModelsConfig.readProject(projectRoot)
         : ModelsConfig.readGlobal();
 
-    final labels = [
-      for (final candidate in candidates)
-        '${candidate.relative}  '
-            '(${candidate.classCount} model '
-            'class${candidate.classCount == 1 ? '' : 'es'})',
-      'Somewhere else — let me type it',
-      if (_forProject)
-        'Leave this project alone'
-      else
-        "Skip — I'll set it per project",
-    ];
-
     _say('');
-    final chosen = selectSingle(
-      _forProject
-          ? '  Where do this project\'s API models live?'
-          : '  Where do your API models usually live?',
-      labels,
-      defaultIndex: _defaultFor(current, candidates),
-    );
+    _say(_forProject
+        ? "Where do this project's API model classes live?"
+        : 'Where do your API model classes usually live?');
+    _say('');
+    _say('  A directory, or one `.dart` file, relative to the project root.');
+    _say('  For example: lib/server/response');
+    _say(current == null
+        ? '  Leave it blank to set it per project instead.'
+        : '  Leave it blank to keep $current.');
+    _say('');
 
-    if (chosen < candidates.length) {
-      return candidates[chosen].relative;
-    }
-    if (chosen == labels.length - 1) {
-      return null; // Skipped.
-    }
-    return _askForTypedPath(projectRoot);
-  }
-
-  int _defaultFor(String? current, List<ModelsCandidate> candidates) {
-    if (current == null) {
-      return 0;
-    }
-    final index = candidates.indexWhere((c) => c.relative == current);
-    return index < 0 ? 0 : index;
-  }
-
-  /// Asks for a path and keeps asking while it cannot be used.
-  ///
-  /// Unlike the non-interactive setter this re-asks, since there is somebody
-  /// there to correct the typo.
-  Future<String?> _askForTypedPath(String projectRoot) async {
     while (true) {
-      final typed = promptLine(
-        '  Path, relative to the project root (blank to skip):',
-      );
+      final typed = promptLine('  Path:');
       if (typed == null) {
-        return null;
+        return current;
       }
 
       final relative = p.normalize(
         p.isAbsolute(typed) ? p.relative(typed, from: projectRoot) : typed,
       );
 
-      final verdict =
+      final checked =
           await checkModelsPath(projectRoot: projectRoot, relative: relative);
 
-      switch (verdict) {
+      switch (checked.verdict) {
         case ModelsPathVerdict.ok:
+          _say('  ${checked.classCount} model '
+              'class${checked.classCount == 1 ? '' : 'es'} in $relative.');
           return relative;
 
         // Worth saying, but not worth refusing: a directory can be empty

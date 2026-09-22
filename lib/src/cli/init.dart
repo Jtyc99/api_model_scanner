@@ -27,8 +27,19 @@ enum ModelsPathVerdict {
   noModelClasses,
 }
 
+/// A models path judged, with what was found there.
+class ModelsPathCheck {
+  final ModelsPathVerdict verdict;
+
+  /// How many classes declare `fromJson`/`toJson`, so the wizard can confirm
+  /// the path was the one meant. Zero for every verdict but [ok].
+  final int classCount;
+
+  const ModelsPathCheck(this.verdict, [this.classCount = 0]);
+}
+
 /// Judges [relative] as a models path for [projectRoot].
-Future<ModelsPathVerdict> checkModelsPath({
+Future<ModelsPathCheck> checkModelsPath({
   required String projectRoot,
   required String relative,
 }) async {
@@ -37,7 +48,7 @@ Future<ModelsPathVerdict> checkModelsPath({
   );
 
   if (normalized.startsWith('..')) {
-    return ModelsPathVerdict.outsideProject;
+    return const ModelsPathCheck(ModelsPathVerdict.outsideProject);
   }
 
   final target = p.join(projectRoot, normalized);
@@ -45,12 +56,12 @@ Future<ModelsPathVerdict> checkModelsPath({
   try {
     final discovered = await findModels(modelsPath: target);
     return discovered.classes.isEmpty
-        ? ModelsPathVerdict.noModelClasses
-        : ModelsPathVerdict.ok;
+        ? const ModelsPathCheck(ModelsPathVerdict.noModelClasses)
+        : ModelsPathCheck(ModelsPathVerdict.ok, discovered.classes.length);
   } on ModelsDirectoryNotFound {
-    return ModelsPathVerdict.missing;
+    return const ModelsPathCheck(ModelsPathVerdict.missing);
   } on NotADartFile {
-    return ModelsPathVerdict.notADartFile;
+    return const ModelsPathCheck(ModelsPathVerdict.notADartFile);
   }
 }
 

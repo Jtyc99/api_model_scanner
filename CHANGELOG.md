@@ -9,8 +9,9 @@ AST-aware source edits.
 ### Commands
 
 - `init` sets the tool up, once, after installing — pub runs nothing on
-  `activate`, so nothing can do it for you. It offers the directories under
-  `lib/` that declare `fromJson`/`toJson` rather than asking you to type one,
+  `activate`, so nothing can do it for you. It asks where your model classes
+  live and reports how many it found there, so a wrong path shows up at once
+  instead of at the next scan; it re-asks on a path it cannot use. It then
   picks the editor command when more than one is installed, and offers the
   report editor. `init --project` points one repo somewhere else, and wins
   over the machine-wide setting. A models directory is required: `scan`,
