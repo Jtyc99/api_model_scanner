@@ -140,3 +140,33 @@ int selectSingle(
 
   return state.current;
 }
+
+/// Asks for a line of text and returns it trimmed, or null if nothing usable
+/// was given.
+///
+/// Returns null immediately when no terminal is attached, for the same reason
+/// [selectSingle] falls back to its default: a prompt that waited on stdin
+/// anyway would hang an unattended run rather than fail it.
+///
+/// Line mode is restored around the read because [selectSingle] leaves the
+/// terminal raw while it draws, and a wizard alternates between the two.
+String? promptLine(String prompt) {
+  if (!canPrompt) {
+    return null;
+  }
+
+  final previousEcho = stdin.echoMode;
+  final previousLine = stdin.lineMode;
+
+  stdin.lineMode = true;
+  stdin.echoMode = true;
+
+  try {
+    stdout.write('$prompt ');
+    final answer = stdin.readLineSync()?.trim();
+    return answer == null || answer.isEmpty ? null : answer;
+  } finally {
+    stdin.lineMode = previousLine;
+    stdin.echoMode = previousEcho;
+  }
+}

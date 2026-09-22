@@ -98,6 +98,11 @@ String applyInit(
 
   final path = globalConfigPath ?? ModelsConfig.globalPath();
 
+  // Touched even when every answer was skipped, so a later command can tell
+  // "init was never run" from "init ran and I chose to set it per project".
+  // Those two need different advice.
+  ModelsConfig.ensureExists(path);
+
   if (answers.models != null) {
     ModelsConfig.writeGlobalTo(path, answers.models!);
   }

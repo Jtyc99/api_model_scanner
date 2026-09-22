@@ -93,4 +93,12 @@ void main() {
     ], length: 4);
     expect(state.current, 2);
   });
+
+  group('typing an answer', () {
+    test('returns nothing without a terminal, rather than blocking', () {
+      // canPrompt is false here: no pty. A prompt that waited for stdin
+      // anyway would hang every CI run that reached it.
+      expect(promptLine('Where do your models live?'), isNull);
+    });
+  });
 }

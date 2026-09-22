@@ -12,6 +12,7 @@ import '../cache/unused_cache.dart';
 import '../version.dart';
 import 'config.dart';
 import 'gui.dart';
+import 'init.dart';
 import '../model.dart';
 import '../model_field_fixer.dart';
 import '../scanning/dead_classes.dart';
@@ -35,22 +36,13 @@ Future<int> runCli(List<String> arguments) async {
     stderr.writeln('');
     stderr.writeln(e.usage);
     return 64;
-  } on ModelsDirectoryNotSet {
-    stderr.writeln('No models directory is set.');
-    stderr.writeln('');
-    stderr.writeln(
-      'Run this once, pointing at the folder that holds your API model '
-      'classes:',
-    );
-    stderr.writeln('  amscan set-default lib/server/response');
-    stderr.writeln('');
-    stderr.writeln('Add --project to set it for this project only, '
-        'or pass --models=<dir> for a single run.');
+  } on ModelsDirectoryNotSet catch (e) {
+    e.guidance.forEach(stderr.writeln);
     return 78;
   } on ModelsDirectoryNotFound catch (e) {
     stderr.writeln(e.toString());
     stderr.writeln(
-      'Set it with `amscan set-default <dir>`, '
+      'Change it with `amscan init --project`, '
       'or pass --models=<dir> for a single run.',
     );
     return 66;
@@ -75,7 +67,7 @@ class ApiModelScannerRunner extends CommandRunner<int> {
       negatable: false,
       help: 'Print the tool version and exit.',
     );
-    addCommand(SetDefaultCommand());
+    addCommand(InitCommand());
     addCommand(GuiCommand());
     addCommand(ScanCommand());
     addCommand(RemoveCommand());
@@ -101,8 +93,7 @@ abstract class _ModelCommand extends Command<int> {
       abbr: 'a',
       negatable: false,
       help: 'Answer every prompt with its affirmative and never wait for '
-          'input — for unattended runs. Implies --all, and accepts the '
-          'first-run offer to install the VS Code editor.',
+          'input — for unattended runs. Implies --all.',
     );
     argParser.addOption(
       'models',
@@ -123,59 +114,6 @@ abstract class _ModelCommand extends Command<int> {
   /// The directory being scanned. Only valid once [resolveModels] has run.
   String get modelsPath => _models!;
 
-  /// Offers the VS Code editor the first time, and remembers the answer.
-  ///
-  /// This is as close as a Dart package can get to asking at install time:
-  /// pub runs nothing on `activate`, by design, so the first command that
-  /// produces something worth looking at has to do the asking. Silence is
-  /// treated as no — an editor extension should never arrive uninvited.
-  void maybeOfferGui() {
-    if (ModelsConfig.readGuiPreference() != null) {
-      return; // Already answered; `amscan gui` changes it.
-    }
-    if (!codeCliAvailable() || guiInstalled()) {
-      return;
-    }
-    // Nothing to ask with, and no standing answer to obey.
-    if (!canPrompt && !acceptAll) {
-      return;
-    }
-
-    say('');
-    say('There is a VS Code editor for this report: a real table with '
-        'checkbox cells, instead of a Markdown list.');
-    say('');
-
-    // `-a` accepts this like any other prompt. Leaving it unanswered would
-    // mean an unattended run never gets the editor and is asked again every
-    // time, which is the opposite of what the flag is for.
-    final choice = acceptAll
-        ? 1
-        : selectSingle('  Install it?', [
-            'No — the Markdown report is fine',
-            'Yes — install it now',
-          ]);
-
-    if (choice != 1) {
-      ModelsConfig.writeGuiPreference(false);
-      say('');
-      say('Skipped. Run `amscan gui install` if you change your mind.');
-      say('');
-      return;
-    }
-
-    final result = installGui();
-    ModelsConfig.writeGuiPreference(result.ok);
-    say('');
-    if (result.ok) {
-      say('Installed $extensionId. Reload the VS Code window to use it.');
-    } else {
-      say('Could not install it; the Markdown report still works. '
-          'Try `amscan gui install` for the details.');
-    }
-    say('');
-  }
-
   /// Works out which directory to scan.
   ///
   /// Throws [ModelsDirectoryNotSet] when nothing is configured. There is
@@ -193,7 +131,9 @@ abstract class _ModelCommand extends Command<int> {
 
     final configured = ModelsConfig.resolve(projectRoot);
     if (configured == null) {
-      throw const ModelsDirectoryNotSet();
+      throw ModelsDirectoryNotSet(
+        initialised: ModelsConfig.hasGlobalConfig(),
+      );
     }
 
     _models = configured.absolute(projectRoot);
@@ -441,8 +381,6 @@ class ScanCommand extends _ModelCommand {
     say('Report written to:');
     say('  ${cache.reportPath}');
     say('');
-
-    maybeOfferGui();
 
     if (shouldOpen && openInEditor(cache.reportPath) == null) {
       say('Could not open an editor automatically — open the path above.');
@@ -1056,7 +994,7 @@ const String _wholeClassField = '(whole class)';
 /// Pub runs nothing on `activate` or `deactivate` — a package may never
 /// execute its own code as a side effect of being installed — so the editor
 /// cannot ride along with either. These commands are how it is managed, and
-/// [maybeOfferGui] is what makes the first run mention it at all.
+/// `init` is where it is offered; this manages it afterwards.
 class GuiCommand extends Command<int> {
   GuiCommand() {
     addSubcommand(_GuiInstallCommand());
@@ -1167,78 +1105,451 @@ class _GuiUninstallCommand extends Command<int> {
   }
 }
 
-/// `amscan set-default <dir>`
-class SetDefaultCommand extends Command<int> {
-  SetDefaultCommand() {
-    argParser.addFlag(
-      'project',
-      negatable: false,
-      help: 'Remember it for this project only, instead of machine-wide. '
-          'A project setting wins over the machine-wide one.',
-    );
+/// `amscan init [<dir>]`
+///
+/// The one-off setup step. Pub runs nothing on `activate` — verified, and by
+/// design — so there is no way to trigger this at install time; it has to be
+/// the first thing you run.
+class InitCommand extends Command<int> {
+  InitCommand() {
+    argParser
+      ..addFlag(
+        'project',
+        negatable: false,
+        help: 'Set the models directory for this project only. A project '
+            'setting wins over the machine-wide one.',
+      )
+      ..addFlag(
+        'accept-all',
+        abbr: 'a',
+        negatable: false,
+        help: 'Never wait for input. Anything not given as a flag is left '
+            'unset rather than guessed.',
+      )
+      ..addOption(
+        'editor',
+        help: 'Editor command that manages the report editor and opens the '
+            'report. Machine-wide.',
+        valueHelp: 'command',
+      )
+      ..addOption(
+        'gui',
+        help: 'Whether to install the VS Code report editor. Machine-wide.',
+        allowed: ['yes', 'no'],
+      );
   }
 
   @override
-  String get name => 'set-default';
+  String get name => 'init';
 
   @override
   String get description =>
-      'Remember the directory that holds your API model classes.';
+      'Set up api_model_scanner — run this once after installing.';
 
   @override
-  String get invocation => 'api_model_scanner set-default <dir>';
+  String get invocation => 'api_model_scanner init [<dir>]';
+
+  String get _root => Directory.current.absolute.path;
+
+  bool get _acceptAll => argResults!['accept-all'] as bool;
+  bool get _forProject => argResults!['project'] as bool;
+
+  void _say(String message) => stdout.writeln(message);
 
   @override
   Future<int> run() async {
     final rest = argResults!.rest;
-
-    if (rest.length != 1 || rest.single.trim().isEmpty) {
-      stderr.writeln('Usage: amscan set-default <dir>');
-      stderr.writeln('For example: amscan set-default lib/server/response');
+    if (rest.length > 1) {
+      stderr.writeln('Usage: amscan init [<dir>]');
       return 64;
     }
 
-    final projectRoot = Directory.current.absolute.path;
-    final forProject = argResults!['project'] as bool;
+    final projectRoot = _root;
 
-    // Stored relative so the setting means the same thing in any checkout,
-    // and so a machine-wide default can apply across projects at all.
-    final relative = p.normalize(
-      p.isAbsolute(rest.single)
-          ? p.relative(rest.single, from: projectRoot)
-          : rest.single,
-    );
-
-    if (relative.startsWith('..')) {
-      stderr.writeln('That directory is outside the project: ${rest.single}');
-      return 64;
+    if (_forProject && !looksLikeDartProject(projectRoot)) {
+      stderr.writeln('No pubspec.yaml here, so this is not a Dart project: '
+          '$projectRoot');
+      stderr.writeln('');
+      stderr.writeln('Run `amscan init --project` from a project root, or '
+          '`amscan init` to set a default for every project.');
+      return 66;
     }
 
-    final target = p.join(projectRoot, relative);
-    if (!Directory(target).existsSync() && !File(target).existsSync()) {
-      // Not fatal for a machine-wide default — the point is other projects —
-      // but silence here would hide a typo until the next scan.
-      stderr.writeln('Warning: $relative does not exist in this project.');
+    final givenDir = rest.isEmpty ? null : rest.single.trim();
+    final givenEditor = argResults!.wasParsed('editor')
+        ? (argResults!['editor'] as String).trim()
+        : null;
+    final givenGui = argResults!.wasParsed('gui')
+        ? argResults!['gui'] == 'yes'
+        : null;
+
+    final wasGivenSomething =
+        givenDir != null || givenEditor != null || givenGui != null;
+
+    // A setter must not block, so anything given on the command line is
+    // applied as-is and nothing is asked.
+    if (wasGivenSomething) {
+      return _applyDirectly(
+        projectRoot: projectRoot,
+        models: givenDir,
+        editor: givenEditor,
+        gui: givenGui,
+      );
     }
 
-    if (forProject) {
-      ModelsConfig.writeProject(projectRoot, relative);
-      stdout.writeln('Default models directory for this project: $relative');
-      stdout.writeln('  ${ModelsConfig.projectPath(projectRoot)}');
-    } else {
-      ModelsConfig.writeGlobal(relative);
-      stdout.writeln('Default models directory for every project: $relative');
-      stdout.writeln('  ${ModelsConfig.globalPath()}');
+    final existing = _describeExisting(projectRoot);
 
-      final override = ModelsConfig.readProject(projectRoot);
-      if (override != null && override != relative) {
-        stdout.writeln('');
-        stdout.writeln('Note: this project overrides it with `$override`. '
-            'Run with --project to change that instead.');
+    if (_acceptAll) {
+      // Nothing was given and nothing may be asked. Report, and for a
+      // machine-wide run record that init has been through.
+      if (existing.isNotEmpty) {
+        existing.forEach(_say);
+        return 0;
+      }
+      if (_forProject) {
+        stderr.writeln('Nothing to set: pass a directory, as '
+            '`amscan init --project <dir>`.');
+        return 64;
+      }
+      applyInit(const InitAnswers(), projectRoot: projectRoot);
+      _say('Recorded. Nothing was asked, so no setting was changed.');
+      return 0;
+    }
+
+    if (existing.isNotEmpty) {
+      existing.forEach(_say);
+      _say('');
+      if (!canPrompt) {
+        _say('Run `amscan init` from a terminal to change any of this.');
+        return 0;
+      }
+      final change = selectSingle('  Change any of this?', [
+        'No — leave it as it is',
+        'Yes — go through the questions again',
+      ]);
+      if (change != 1) {
+        return 0;
       }
     }
 
+    if (!canPrompt) {
+      stderr.writeln('There is no terminal here to ask on.');
+      stderr.writeln('');
+      stderr.writeln('Pass the answers instead:');
+      stderr.writeln('  amscan init <dir> [--editor=<command>] [--gui=yes|no]');
+      return 78;
+    }
+
+    return _wizard(projectRoot);
+  }
+
+  /// Applies command-line answers without asking anything.
+  Future<int> _applyDirectly({
+    required String projectRoot,
+    String? models,
+    String? editor,
+    bool? gui,
+  }) async {
+    String? relative;
+
+    if (models != null) {
+      if (models.isEmpty) {
+        stderr.writeln('Usage: amscan init [<dir>]');
+        return 64;
+      }
+
+      relative = p.normalize(
+        p.isAbsolute(models) ? p.relative(models, from: projectRoot) : models,
+      );
+
+      final verdict =
+          await checkModelsPath(projectRoot: projectRoot, relative: relative);
+
+      if (verdict == ModelsPathVerdict.outsideProject) {
+        stderr.writeln('That directory is outside the project: $models');
+        return 64;
+      }
+
+      // Anything else is only a warning. A machine-wide default names a
+      // directory that need not exist *here*, and a setter that refused
+      // would be unusable from a script.
+      final note = _warningFor(verdict, relative);
+      if (note != null) {
+        stderr.writeln('Warning: $note');
+      }
+    }
+
+    if (gui == true) {
+      _install(editor: editor);
+    }
+
+    final written = applyInit(
+      InitAnswers(
+        models: relative,
+        gui: gui,
+        editor: editor,
+        forProject: _forProject,
+      ),
+      projectRoot: projectRoot,
+    );
+
+    _say('Saved to $written');
+    _describeExisting(projectRoot).forEach(_say);
     return 0;
+  }
+
+  String? _warningFor(ModelsPathVerdict verdict, String relative) =>
+      switch (verdict) {
+        ModelsPathVerdict.ok => null,
+        ModelsPathVerdict.outsideProject => null,
+        ModelsPathVerdict.missing =>
+          '$relative does not exist in this project.',
+        ModelsPathVerdict.notADartFile => '$relative is not Dart source.',
+        ModelsPathVerdict.noModelClasses =>
+          '$relative declares no `fromJson`/`toJson` classes.',
+      };
+
+  /// The interactive path.
+  Future<int> _wizard(String projectRoot) async {
+    _say('');
+    _say('Setting up api_model_scanner');
+    _say('===========================');
+    _say('');
+
+    final inProject = looksLikeDartProject(projectRoot);
+    String? models;
+
+    if (inProject) {
+      models = await _askForModels(projectRoot);
+    } else if (!_forProject) {
+      _say('No pubspec.yaml here, so this is not a project — asking about '
+          'the editor only.');
+      _say('');
+    }
+
+    bool? gui;
+    String? editor;
+
+    if (!_forProject) {
+      editor = _askForEditor();
+      if (editor != null) {
+        gui = _askForGui(editor);
+      }
+    }
+
+    final written = applyInit(
+      InitAnswers(
+        models: models,
+        gui: gui,
+        editor: editor,
+        forProject: _forProject,
+      ),
+      projectRoot: projectRoot,
+    );
+
+    _say('');
+    _say('Saved to $written');
+    _say('');
+    _say(models == null && ModelsConfig.resolve(projectRoot) == null
+        ? 'Set a models directory with `amscan init --project` in a project, '
+            'then run `amscan scan`.'
+        : 'Run `amscan scan` to start.');
+    _say('');
+    return 0;
+  }
+
+  /// Offers the directories that look like they hold models.
+  Future<String?> _askForModels(String projectRoot) async {
+    _say('Looking for model classes…');
+
+    final candidates = await findModelsCandidates(projectRoot: projectRoot);
+    final current = _forProject
+        ? ModelsConfig.readProject(projectRoot)
+        : ModelsConfig.readGlobal();
+
+    final labels = [
+      for (final candidate in candidates)
+        '${candidate.relative}  '
+            '(${candidate.classCount} model '
+            'class${candidate.classCount == 1 ? '' : 'es'})',
+      'Somewhere else — let me type it',
+      if (_forProject)
+        'Leave this project alone'
+      else
+        "Skip — I'll set it per project",
+    ];
+
+    _say('');
+    final chosen = selectSingle(
+      _forProject
+          ? '  Where do this project\'s API models live?'
+          : '  Where do your API models usually live?',
+      labels,
+      defaultIndex: _defaultFor(current, candidates),
+    );
+
+    if (chosen < candidates.length) {
+      return candidates[chosen].relative;
+    }
+    if (chosen == labels.length - 1) {
+      return null; // Skipped.
+    }
+    return _askForTypedPath(projectRoot);
+  }
+
+  int _defaultFor(String? current, List<ModelsCandidate> candidates) {
+    if (current == null) {
+      return 0;
+    }
+    final index = candidates.indexWhere((c) => c.relative == current);
+    return index < 0 ? 0 : index;
+  }
+
+  /// Asks for a path and keeps asking while it cannot be used.
+  ///
+  /// Unlike the non-interactive setter this re-asks, since there is somebody
+  /// there to correct the typo.
+  Future<String?> _askForTypedPath(String projectRoot) async {
+    while (true) {
+      final typed = promptLine(
+        '  Path, relative to the project root (blank to skip):',
+      );
+      if (typed == null) {
+        return null;
+      }
+
+      final relative = p.normalize(
+        p.isAbsolute(typed) ? p.relative(typed, from: projectRoot) : typed,
+      );
+
+      final verdict =
+          await checkModelsPath(projectRoot: projectRoot, relative: relative);
+
+      switch (verdict) {
+        case ModelsPathVerdict.ok:
+          return relative;
+
+        // Worth saying, but not worth refusing: a directory can be empty
+        // today and full tomorrow.
+        case ModelsPathVerdict.noModelClasses:
+          _say('  $relative declares no `fromJson`/`toJson` classes — '
+              'using it anyway.');
+          return relative;
+
+        case ModelsPathVerdict.outsideProject:
+          _say('  That is outside the project; the setting is stored '
+              'relative to it.');
+        case ModelsPathVerdict.missing:
+          _say('  Nothing at $relative.');
+        case ModelsPathVerdict.notADartFile:
+          _say('  $relative is not Dart source.');
+      }
+    }
+  }
+
+  /// Picks the editor command, asking only when there is a real choice.
+  String? _askForEditor() {
+    final found = detectEditors();
+
+    if (found.isEmpty) {
+      _say('');
+      _say('No editor command on PATH (looked for '
+          '${knownEditors.join(', ')}).');
+      _say('In VS Code: Command Palette → '
+          '"Shell Command: Install \'code\' command in PATH".');
+      _say('');
+      return null;
+    }
+
+    if (found.length == 1) {
+      _say('');
+      _say('Editor: ${found.single}');
+      return found.single;
+    }
+
+    final current = ModelsConfig.readEditor();
+    final at = found.indexOf(current ?? '');
+
+    _say('');
+    final chosen = selectSingle(
+      '  Which editor should amscan use?',
+      found,
+      defaultIndex: at < 0 ? 0 : at,
+    );
+    return found[chosen];
+  }
+
+  /// Offers the report editor, and installs it on a yes.
+  bool? _askForGui(String editor) {
+    if (guiInstalled(editor: editor)) {
+      _say('The report editor is already installed.');
+      return true;
+    }
+
+    _say('');
+    _say('There is an editor extension for the report: a real table with '
+        'checkbox cells, instead of a Markdown list.');
+    _say('');
+
+    final choice = selectSingle('  Install it?', [
+      'Yes — install it now',
+      'No — the Markdown report is fine',
+    ]);
+
+    if (choice != 0) {
+      _say('Skipped. Run `amscan gui install` if you change your mind.');
+      return false;
+    }
+
+    return _install(editor: editor);
+  }
+
+  bool _install({String? editor}) {
+    final result = installGui(editor: editor);
+    if (result.ok) {
+      _say('Installed $extensionId. Reload the editor window to use it.');
+    } else {
+      _say('Could not install it; the Markdown report still works. '
+          'Try `amscan gui install` for the details.');
+    }
+    return result.ok;
+  }
+
+  /// The settings already in force, as lines. Empty when there are none.
+  List<String> _describeExisting(String projectRoot) {
+    final resolved = ModelsConfig.resolve(projectRoot);
+    final editor = ModelsConfig.readEditor();
+    final gui = ModelsConfig.readGuiPreference();
+
+    if (resolved == null && editor == null && gui == null) {
+      return ModelsConfig.hasGlobalConfig()
+          ? const ['Set up, but nothing is configured yet.']
+          : const [];
+    }
+
+    return [
+      'Current settings',
+      '',
+      if (resolved != null)
+        '  Models:  ${resolved.relative}  '
+            '(${switch (resolved.source) {
+          ModelsSource.project => 'this project',
+          ModelsSource.global => 'every project',
+          ModelsSource.flag => 'this run',
+        }})'
+      else
+        '  Models:  not set',
+      '  Editor:  ${editor ?? 'not set'}',
+      '  Report editor: ${switch (gui) {
+        true => 'wanted',
+        false => 'declined',
+        null => 'not answered',
+      }}',
+      '',
+      '  ${ModelsConfig.globalPath()}',
+      if (ModelsConfig.readProject(projectRoot) != null)
+        '  ${ModelsConfig.projectPath(projectRoot)}',
+    ];
   }
 }
 

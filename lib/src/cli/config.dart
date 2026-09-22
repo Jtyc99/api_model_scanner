@@ -124,6 +124,17 @@ class ModelsConfig {
     );
   }
 
+  /// Creates an empty config file if there is none, leaving any existing one
+  /// untouched.
+  static void ensureExists(String path) {
+    final file = File(path);
+    if (file.existsSync()) {
+      return;
+    }
+    Directory(p.dirname(path)).createSync(recursive: true);
+    file.writeAsStringSync('{}\n');
+  }
+
   static Object? _readKey(String path, String key) {
     final file = File(path);
     if (!file.existsSync()) {
@@ -171,6 +182,10 @@ class ModelsConfig {
   /// Writes a global-shaped config to an explicit path. For tests.
   static void writeGlobalTo(String path, String models) => _write(path, models);
 
+  /// Whether this machine has a config file at all — i.e. `init` has run.
+  static bool hasGlobalConfig({String? globalConfigPath}) =>
+      File(globalConfigPath ?? globalPath()).existsSync();
+
   /// The models directory to use, or null when nothing is configured.
   ///
   /// [globalConfigPath] exists so tests can resolve against a temporary file
@@ -195,9 +210,36 @@ class ModelsConfig {
 ///
 /// Deliberately not recoverable by guessing: see `resolveModels`.
 class ModelsDirectoryNotSet implements Exception {
-  const ModelsDirectoryNotSet();
+  /// Whether `init` has been run on this machine.
+  ///
+  /// The two cases need different advice. Nobody who has never run `init`
+  /// should be told to run `init --project`, and someone who ran it and chose
+  /// to set the directory per project should not be told to start over.
+  final bool initialised;
+
+  const ModelsDirectoryNotSet({this.initialised = false});
+
+  /// What to tell the user, as lines.
+  List<String> get guidance => initialised
+      ? const [
+          'No models directory is set for this project.',
+          '',
+          'Point this project at the folder holding its API model classes:',
+          '  amscan init --project',
+          '',
+          'Or set a default for every project with `amscan init`, '
+              'or pass --models=<dir> for a single run.',
+        ]
+      : const [
+          'api_model_scanner is not set up yet.',
+          '',
+          'Run this once:',
+          '  amscan init',
+          '',
+          'It asks where your API model classes live and which editor to '
+              'use. Or pass --models=<dir> for a single run.',
+        ];
 
   @override
-  String toString() =>
-      'No models directory is set. Run `amscan set-default <dir>`.';
+  String toString() => guidance.first;
 }

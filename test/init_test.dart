@@ -159,4 +159,59 @@ class User {
       expect(looksLikeDartProject(temp.path), isFalse);
     });
   });
+
+  group('a machine-wide run records that init happened', () {
+    String globalAt() => p.join(temp.path, 'global', 'config.json');
+
+    test('even when every question was skipped', () {
+      applyInit(
+        const InitAnswers(),
+        projectRoot: temp.path,
+        globalConfigPath: globalAt(),
+      );
+
+      expect(File(globalAt()).existsSync(), isTrue,
+          reason: 'otherwise the next command cannot tell "init was never '
+              'run" from "init ran and I chose to set it per project"');
+      expect(ModelsConfig.hasGlobalConfig(globalConfigPath: globalAt()),
+          isTrue);
+    });
+
+    test('a project-only run does not claim the machine was set up', () {
+      applyInit(
+        const InitAnswers(models: 'lib/api', forProject: true),
+        projectRoot: temp.path,
+        globalConfigPath: globalAt(),
+      );
+
+      expect(ModelsConfig.hasGlobalConfig(globalConfigPath: globalAt()),
+          isFalse);
+    });
+  });
+
+  group('telling the user what to run', () {
+    test('with nothing set up at all, it points at init', () {
+      final guidance = const ModelsDirectoryNotSet().guidance.join('\n');
+
+      expect(guidance, contains('amscan init'));
+      expect(guidance, isNot(contains('--project')));
+    });
+
+    test('once init has run, it points at this project', () {
+      final guidance =
+          const ModelsDirectoryNotSet(initialised: true).guidance.join('\n');
+
+      expect(guidance, contains('amscan init --project'));
+    });
+
+    test('it never mentions the command that no longer exists', () {
+      for (final e in [
+        const ModelsDirectoryNotSet(),
+        const ModelsDirectoryNotSet(initialised: true),
+      ]) {
+        expect(e.guidance.join('\n'), isNot(contains('set-default')));
+        expect(e.toString(), isNot(contains('set-default')));
+      }
+    });
+  });
 }
