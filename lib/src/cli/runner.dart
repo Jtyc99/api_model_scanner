@@ -374,7 +374,9 @@ class ScanCommand extends _ModelCommand {
 
     final existing = cache.read();
 
-    if (existing != null) {
+    // An empty record is a finished run, not results worth keeping — there is
+    // nothing to show, so asking whether to rescan wastes the question.
+    if (existing != null && existing.fields.isNotEmpty) {
       say('Cached results found — scanned ${existing.age}, '
           '${existing.fields.length} potentially unused.');
       say('');
@@ -555,18 +557,26 @@ abstract class _MutatingCommand extends _ModelCommand {
               .contains('${f.filePath}|${f.className}|${f.fieldName}'))
           .toList();
 
+      // Written even when empty. Keeping the header — when this was scanned,
+      // and where — is what lets `disable --undo` hand fields back to this
+      // record instead of losing them, and leaves `clear` as the only thing
+      // that removes it.
+      cache.write(UnusedCache(
+        scannedAt: result.scannedAt,
+        projectRoot: result.projectRoot,
+        modelsPath: result.modelsPath,
+        totalFieldsScanned: result.totalFieldsScanned,
+        fields: remaining,
+        deadClasses: result.deadClasses,
+      ));
+
       if (remaining.isEmpty) {
-        cache.delete();
         say('');
-        say('All recorded fields handled — report cleared.');
+        say(mode == EditMode.delete
+            ? 'All recorded fields handled — nothing left to act on.'
+            : 'All recorded fields disabled — '
+                'undo with `amscan disable --undo`.');
       } else {
-        cache.write(UnusedCache(
-          scannedAt: result.scannedAt,
-          projectRoot: result.projectRoot,
-          modelsPath: result.modelsPath,
-          totalFieldsScanned: result.totalFieldsScanned,
-          fields: remaining,
-        ));
         say('');
         say('${remaining.length} field${remaining.length == 1 ? '' : 's'} '
             'still listed in the report.');
@@ -922,7 +932,7 @@ class DisableCommand extends _MutatingCommand {
 
     // Only once nothing is commented out anywhere: formatting around a
     // surviving comment can remove a separator that its undo still needs.
-    if ((argResults!['format'] as bool) && !store.exists) {
+    if ((argResults!['format'] as bool) && store.isEmpty) {
       await Process.run(
         'dart',
         ['format', ...changed],
@@ -933,16 +943,68 @@ class DisableCommand extends _MutatingCommand {
 
     store.remove(done);
 
+    // Undo puts the code back, so the fields are unused again — hand them to
+    // the unused record rather than dropping them. Without this the cycle
+    // loses information: the code is byte-identical to what was scanned, but
+    // nothing remembers that these fields were found, so the next command has
+    // to rescan the whole project to rediscover what it already knew.
+    //
+    // Only for `--undo`. `--remove` deletes the code for good, and a field
+    // that no longer exists does not belong in a list of unused ones.
+    if (restore && done.isNotEmpty) {
+      final restored = all.where((f) => done.contains(f.key)).toList();
+      final existing = cache.read();
+
+      if (existing == null) {
+        say('');
+        say('Restored, but there is no scan to return them to — '
+            'run `amscan scan` to list them again.');
+      } else {
+        final known = {
+          for (final f in existing.fields)
+            '${f.filePath}|${f.className}|${f.fieldName}',
+        };
+        final added = [
+          for (final f in restored)
+            if (!known.contains('${f.filePath}|${f.className}|${f.fieldName}') &&
+                f.fieldName != _wholeClassField)
+              CachedField(
+                className: f.className,
+                fieldName: f.fieldName,
+                filePath: f.filePath,
+                line: f.line,
+              ),
+        ];
+
+        if (added.isNotEmpty) {
+          cache.write(UnusedCache(
+            scannedAt: existing.scannedAt,
+            projectRoot: existing.projectRoot,
+            modelsPath: existing.modelsPath,
+            totalFieldsScanned: existing.totalFieldsScanned,
+            fields: [...existing.fields, ...added],
+            deadClasses: existing.deadClasses,
+          ));
+          say('${added.length} field${added.length == 1 ? '' : 's'} '
+              'back in the report — they are unused again.');
+        }
+      }
+    }
+
     say('${restore ? 'Re-enabled' : 'Removed'} ${done.length} '
         'field${done.length == 1 ? '' : 's'} '
         'in ${changed.length} file${changed.length == 1 ? '' : 's'}.');
-    if (!store.exists) {
-      say('Nothing is disabled any more — record cleared.');
+    if (store.isEmpty) {
+      say('Nothing is disabled any more.');
     }
     say('');
     return 0;
   }
 }
+
+/// Pseudo field name a whole-class disabled record carries; it names no real
+/// field, so it never belongs in the unused report.
+const String _wholeClassField = '(whole class)';
 
 /// `amscan gui`, `amscan gui install`, `amscan gui uninstall`
 ///

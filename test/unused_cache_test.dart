@@ -226,11 +226,16 @@ void main() {
     }
   });
 
-  test('an empty result set still produces a readable report', () {
+  test('an empty report leads with when it was scanned, not a verdict', () {
+    // The file persists until `clear`, so a bare "nothing found ✅" would read
+    // as today's answer however old the scan is.
     final report = store.renderReport(buildCache(fields: []));
 
-    expect(report, contains('No unused model fields found'));
+    expect(report, contains('As of'));
+    expect(report, contains('nothing was left to act on'));
+    expect(report, contains('fields checked'));
     expect(report.contains('Would remove'), isFalse);
+    expect(report.contains('- [ ]'), isFalse, reason: 'nothing to tick');
   });
 
   test('a field whose declaration vanished is flagged, not silently dropped',

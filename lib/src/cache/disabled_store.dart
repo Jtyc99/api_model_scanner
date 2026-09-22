@@ -52,12 +52,17 @@ class DisabledField {
   final List<DisabledSnippet> snippets;
   final DateTime disabledAt;
 
+  /// One-based declaration line, carried so `--undo` can put the field back
+  /// into the unused record rather than dropping it on the floor.
+  final int line;
+
   const DisabledField({
     required this.className,
     required this.fieldName,
     required this.filePath,
     required this.snippets,
     required this.disabledAt,
+    this.line = 0,
   });
 
   String get key => '$filePath|$className|$fieldName';
@@ -70,12 +75,14 @@ class DisabledField {
         filePath: filePath,
         snippets: kept,
         disabledAt: disabledAt,
+        line: line,
       );
 
   Map<String, dynamic> toJson() => {
         'class': className,
         'field': fieldName,
         'file': filePath,
+        'line': line,
         'snippets': [for (final s in snippets) s.toJson()],
         'disabledAt': disabledAt.toIso8601String(),
       };
@@ -89,6 +96,7 @@ class DisabledField {
             DisabledSnippet.fromJson(s),
         ],
         disabledAt: DateTime.parse(json['disabledAt'] as String),
+        line: (json['line'] as int?) ?? 0,
       );
 }
 
@@ -140,11 +148,14 @@ class DisabledStore {
     write(remaining);
   }
 
+  /// Whether anything is currently commented out.
+  ///
+  /// Content, not presence: the files persist once written so that `clear` is
+  /// the only thing that removes them, which means their existence no longer
+  /// says anything about whether code is disabled.
+  bool get isEmpty => read().isEmpty;
+
   void write(List<DisabledField> fields) {
-    if (fields.isEmpty) {
-      delete();
-      return;
-    }
     Directory(directory).createSync(recursive: true);
     File(jsonPath).writeAsStringSync(
       const JsonEncoder.withIndent('  ').convert({

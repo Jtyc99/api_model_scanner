@@ -1,5 +1,8 @@
+import 'dart:io';
+
 import 'package:analyzer/dart/analysis/utilities.dart';
 import 'package:api_model_scanner/api_model_scanner.dart';
+import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 const _model = '''
@@ -39,6 +42,54 @@ void expectParses(String source) {
 }
 
 void main() {
+  group('the record survives emptying', () {
+    late Directory temp;
+
+    setUp(() => temp = Directory.systemTemp.createTempSync('amscan_rec'));
+    tearDown(() => temp.deleteSync(recursive: true));
+
+    DisabledField entry() => DisabledField(
+          className: 'M',
+          fieldName: 'spare',
+          filePath: p.join(temp.path, 'lib', 'm.dart'),
+          snippets: const [DisabledSnippet('String? spare;', occurrence: 0)],
+          disabledAt: DateTime(2026),
+          line: 3,
+        );
+
+    test('emptying it leaves the file for `clear` to remove', () {
+      final store = DisabledStore(temp.path);
+      store.write([entry()]);
+      expect(store.exists, isTrue);
+
+      store.write([]);
+
+      expect(store.exists, isTrue, reason: 'only `clear` removes it');
+      expect(store.isEmpty, isTrue, reason: 'emptiness is read, not inferred');
+      expect(store.read(), isEmpty);
+    });
+
+    test('the declaration line round-trips, so undo can hand it back', () {
+      final store = DisabledStore(temp.path);
+      store.write([entry()]);
+
+      expect(store.read().single.line, 3);
+    });
+
+    test('a record written before lines were kept reads as zero', () {
+      final legacy = DisabledField.fromJson({
+        'class': 'M',
+        'field': 'spare',
+        'file': '/tmp/m.dart',
+        'snippets': ['String? spare;'],
+        'disabledAt': DateTime(2026).toIso8601String(),
+      });
+
+      expect(legacy.line, 0);
+    });
+  });
+
+
   test('commenting the whole field keeps the source parseable', () {
     final out = ModelFieldFixer.applyEdits(
       _model,

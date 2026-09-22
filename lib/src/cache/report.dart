@@ -30,10 +30,12 @@ class ReportRenderer {
     buffer.writeln();
 
     if (cache.fields.isEmpty) {
-      buffer.writeln('No unused model fields found. ✅');
+      // Lead with when, not with a tick: this file persists until `clear`,
+      // so a bare ✅ would read as today's verdict however old it is.
+      buffer.writeln('**As of ${_formatTime(cache.scannedAt)}**, nothing was '
+          'left to act on — ${cache.totalFieldsScanned} fields checked.');
       buffer.writeln();
-      buffer.writeln('_Scanned ${_formatTime(cache.scannedAt)} · '
-          '${cache.totalFieldsScanned} fields checked._');
+      buffer.writeln('Run `amscan scan` to check again.');
       buffer.writeln();
       return buffer.toString();
     }

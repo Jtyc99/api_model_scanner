@@ -307,6 +307,13 @@ Future<ApplySummary> applySelection({
       // so `--undo` and `--remove` know exactly what to look for.
       if (mode == EditMode.comment) {
         final rank = _rankByText(applied.commented, original);
+        // Declaration lines, so the record can hand fields back to the
+        // unused report on `--undo`.
+        final lines = <String, int>{
+          for (final byClass in fileEntry.value.entries)
+            for (final field in byClass.value)
+              '${byClass.key}|${field.fieldName}': field.line,
+        };
         for (final entry in fieldRanges.entries) {
           final parts = entry.key.split('|');
           // One entry per commented range, anchored and never deduplicated: a
@@ -326,6 +333,7 @@ Future<ApplySummary> applySelection({
               filePath: filePath,
               snippets: snippets,
               disabledAt: DateTime.now(),
+              line: lines[entry.key] ?? 0,
             ));
           }
         }
