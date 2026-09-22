@@ -282,42 +282,43 @@ extension JetBrainsIdeRunning on JetBrainsIde {
 /// no supported way to ask a running one to load a plugin from a local file —
 /// so the restart is the mechanism, not a workaround for one.
 ///
-/// The quit is the graceful one the menu uses, which lets the IDE save and
-/// restore the open projects. When it does not go — an unsaved-changes dialog
-/// will hold it — this reports that rather than forcing it: killing an IDE to
-/// install an editor plugin is a poor trade.
-({bool ok, String detail}) restartAndroidStudio({
-  Duration timeout = const Duration(seconds: 45),
-}) {
+/// Handed to a detached script rather than done here, because this is
+/// routinely run *from the IDE's own terminal*: quitting the IDE kills that
+/// terminal, and with it this process, before it could reopen anything. The
+/// script outlives us, so the reopen happens either way.
+///
+/// The script is a file rather than `sh -c`, so its own command line does not
+/// contain the name it waits on — it would otherwise match itself and wait
+/// for ever.
+({bool ok, String detail}) restartAndroidStudio() {
   if (!Platform.isMacOS) {
     return (ok: false, detail: 'Restarting from here only works on macOS.');
   }
 
+  // The quit is the graceful one the menu uses, so the IDE saves and restores
+  // its open projects. It gets a bounded wait and is then reopened
+  // regardless: a dialog holding the quit is the user's to resolve, and
+  // reopening an IDE that never left is harmless.
+  const script = r"""
+#!/bin/sh
+osascript -e 'tell application "Android Studio" to quit' >/dev/null 2>&1
+i=0
+while [ "$i" -lt 240 ]; do
+  pgrep -f 'Android Studio.app' >/dev/null 2>&1 || break
+  sleep 0.5
+  i=$((i + 1))
+done
+open -a 'Android Studio'
+""";
+
   try {
-    final quit = Process.runSync(
-      'osascript',
-      ['-e', 'tell application "Android Studio" to quit'],
+    final file = File(
+      p.join(Directory.systemTemp.path, 'amscan_restart_android_studio.sh'),
     );
-    if (quit.exitCode != 0) {
-      return (ok: false, detail: '${quit.stderr}'.trim());
-    }
-
-    final deadline = DateTime.now().add(timeout);
-    while (DateTime.now().isBefore(deadline)) {
-      if (!_androidStudioRunning()) {
-        final opened = Process.runSync('open', ['-a', 'Android Studio']);
-        return opened.exitCode == 0
-            ? (ok: true, detail: '')
-            : (ok: false, detail: '${opened.stderr}'.trim());
-      }
-      sleep(const Duration(milliseconds: 250));
-    }
-
-    return (
-      ok: false,
-      detail: 'It is still running — something is probably asking to be '
-          'saved.',
-    );
+    file.writeAsStringSync(script);
+    Process.runSync('chmod', ['+x', file.path]);
+    Process.start('/bin/sh', [file.path], mode: ProcessStartMode.detached);
+    return (ok: true, detail: '');
   } catch (e) {
     return (ok: false, detail: '$e');
   }

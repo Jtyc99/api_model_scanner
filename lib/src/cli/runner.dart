@@ -1152,11 +1152,13 @@ void _settleRestart(
     return;
   }
 
-  say('  ${dim('Quitting ${ide.name}…')}');
   final result = restartAndroidStudio();
 
   if (result.ok) {
-    say('  ${good('✓')} Reopened ${ide.name}.');
+    // Handed off, not finished: this command is very often running in the
+    // terminal that is about to be closed, so it says what was started
+    // rather than waiting to report what happened.
+    say('  ${good('✓')} Restarting ${ide.name} — it will reopen on its own.');
     return;
   }
 
