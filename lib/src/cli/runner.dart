@@ -589,6 +589,8 @@ abstract class _MutatingCommand extends _ModelCommand {
             'or delete for good with `amscan disable --remove`.');
       }
 
+      tidyRecords(cache, DisabledStore(projectRoot));
+
       say('Review with `git diff`.');
     }
 
@@ -997,8 +999,24 @@ class DisableCommand extends _MutatingCommand {
     if (store.isEmpty) {
       say('Nothing is disabled any more.');
     }
+
+    tidyRecords(cache, store);
     say('');
     return 0;
+  }
+}
+
+/// Deletes both records once neither holds anything.
+///
+/// A record has to outlive its contents while the *other* one still has some:
+/// `disable` empties the unused report, and `--undo` needs its header — the
+/// scan time and models path — to hand the fields back. Once both are empty
+/// nothing is outstanding, so there is nothing left to preserve.
+void tidyRecords(CacheStore cache, DisabledStore store) {
+  final unused = cache.read();
+  if ((unused == null || unused.fields.isEmpty) && store.isEmpty) {
+    cache.delete();
+    store.delete();
   }
 }
 

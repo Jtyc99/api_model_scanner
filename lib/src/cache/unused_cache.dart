@@ -144,7 +144,35 @@ class CacheStore {
   }
 
   /// Writes both the JSON cache and the Markdown report.
-  void write(UnusedCache cache) {
+  /// Orders fields by where they are declared.
+  ///
+  /// A scan already yields declaration order within each file, so sorting by
+  /// file and line is what puts a field handed back by `--undo` exactly where
+  /// it was rather than at the end. It also makes the written record
+  /// deterministic, where it previously followed directory-listing order.
+  static UnusedCache _ordered(UnusedCache cache) => UnusedCache(
+        scannedAt: cache.scannedAt,
+        projectRoot: cache.projectRoot,
+        modelsPath: cache.modelsPath,
+        totalFieldsScanned: cache.totalFieldsScanned,
+        deadClasses: cache.deadClasses,
+        fields: cache.fields.toList()
+          ..sort((a, b) {
+            final byFile = a.filePath.compareTo(b.filePath);
+            if (byFile != 0) {
+              return byFile;
+            }
+            final byLine = a.line.compareTo(b.line);
+            if (byLine != 0) {
+              return byLine;
+            }
+            // Several variables may share one declaration line.
+            return a.fieldName.compareTo(b.fieldName);
+          }),
+      );
+
+  void write(UnusedCache raw) {
+    final cache = _ordered(raw);
     Directory(directory).createSync(recursive: true);
     File(jsonPath).writeAsStringSync(
       const JsonEncoder.withIndent('  ').convert(cache.toJson()),

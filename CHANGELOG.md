@@ -17,10 +17,10 @@ AST-aware source edits.
   deletes files left empty — keeping any file something still imports.
 - `disable` comments the code out instead; `--undo` restores it and
   `--remove` deletes it for good.
-- `clear` drops this project's cached results, keeping your settings. It is
-  the only thing that removes them: the records persist once written, so
-  `disable` then `--undo` returns a field to the unused report instead of
-  losing it and forcing a rescan.
+- `clear` drops this project's cached results, keeping your settings. The
+  records otherwise persist while either holds something, so `disable` then
+  `--undo` returns a field to the unused report — in its original position —
+  instead of losing it and forcing a rescan. Once both are empty, both go.
 
 ### Detection
 

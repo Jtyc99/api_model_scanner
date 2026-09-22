@@ -267,12 +267,12 @@ All under `.dart_tool/api_model_scanner/`, which git already ignores.
 | `disabled_fields.json` | What is currently commented out |
 | `disabled_fields.md` | Tickable record for `--undo` / `--remove` |
 
-All four persist once written; `clear` is the only thing that removes them.
-That matters for the cycle: `disable` moves a field from the unused record to
-the disabled one, and `--undo` moves it back — so after undoing, the field is
-listed as unused again rather than forgotten. Deleting the record when it
-emptied used to lose that, forcing a full rescan to rediscover what had just
-been put back.
+A record outlives its own contents while the *other* one still holds
+something: `disable` empties the unused report, and `--undo` needs its header
+— when the scan ran, and where — to hand the fields back. So after undoing, a
+field is listed as unused again, in its original position, rather than
+forgotten. Once both records are empty nothing is outstanding and both are
+deleted; `clear` removes them at any time.
 
 ## Caveats
 

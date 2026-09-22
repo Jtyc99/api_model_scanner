@@ -226,6 +226,32 @@ void main() {
     }
   });
 
+  test('fields are recorded in declaration order, not insertion order', () {
+    // `--undo` appends what it restores; ordering by position is what puts a
+    // field back where it was instead of at the end of the report.
+    final other = p.join(temp.path, 'lib', 'server', 'response', 'a_first.dart');
+    File(other)
+      ..createSync(recursive: true)
+      ..writeAsStringSync('class A {\n  String? x;\n  String? y;\n}\n');
+
+    store.write(buildCache(fields: [
+      CachedField(
+          className: 'A', fieldName: 'y', filePath: other, line: 3),
+      CachedField(
+          className: 'HomeBanner', fieldName: 'desktop',
+          filePath: modelPath, line: 2),
+      CachedField(
+          className: 'A', fieldName: 'x', filePath: other, line: 2),
+    ]));
+
+    final written = store.read()!;
+    expect(
+      written.fields.map((f) => '${f.fieldName}@${f.line}'),
+      ['x@2', 'y@3', 'desktop@2'],
+      reason: 'grouped by file, then by declaration line',
+    );
+  });
+
   test('an empty report leads with when it was scanned, not a verdict', () {
     // The file persists until `clear`, so a bare "nothing found ✅" would read
     // as today's answer however old the scan is.
