@@ -1,0 +1,162 @@
+import 'dart:io';
+
+import 'package:api_model_scanner/src/cli/config.dart';
+import 'package:api_model_scanner/src/cli/init.dart';
+import 'package:path/path.dart' as p;
+import 'package:test/test.dart';
+
+void main() {
+  late Directory temp;
+
+  setUp(() => temp = Directory.systemTemp.createTempSync('amscan_init'));
+  tearDown(() => temp.deleteSync(recursive: true));
+
+  void write(String relative, String content) {
+    final file = File(p.join(temp.path, relative));
+    file.parent.createSync(recursive: true);
+    file.writeAsStringSync(content);
+  }
+
+  const aModel = '''
+class User {
+  final String id;
+  User({required this.id});
+  factory User.fromJson(Map<String, dynamic> json) =>
+      User(id: json['id'] as String);
+  Map<String, dynamic> toJson() => {'id': id};
+}
+''';
+
+  group('checking a models path', () {
+    test('a directory of model classes is accepted', () async {
+      write('lib/models/user.dart', aModel);
+
+      expect(
+        await checkModelsPath(projectRoot: temp.path, relative: 'lib/models'),
+        ModelsPathVerdict.ok,
+      );
+    });
+
+    test('a single model file is accepted', () async {
+      write('lib/models/user.dart', aModel);
+
+      expect(
+        await checkModelsPath(
+          projectRoot: temp.path,
+          relative: 'lib/models/user.dart',
+        ),
+        ModelsPathVerdict.ok,
+      );
+    });
+
+    test('a path outside the project is refused', () async {
+      expect(
+        await checkModelsPath(
+          projectRoot: temp.path,
+          relative: '../elsewhere',
+        ),
+        ModelsPathVerdict.outsideProject,
+      );
+    });
+
+    test('a path that is not there is refused', () async {
+      expect(
+        await checkModelsPath(projectRoot: temp.path, relative: 'lib/nope'),
+        ModelsPathVerdict.missing,
+      );
+    });
+
+    test('a file that is not Dart source is refused', () async {
+      write('lib/models/notes.txt', 'nope');
+
+      expect(
+        await checkModelsPath(
+          projectRoot: temp.path,
+          relative: 'lib/models/notes.txt',
+        ),
+        ModelsPathVerdict.notADartFile,
+      );
+    });
+
+    test('a real directory holding no models is reported, not refused',
+        () async {
+      write('lib/widgets/button.dart', 'class Button {}');
+
+      expect(
+        await checkModelsPath(projectRoot: temp.path, relative: 'lib/widgets'),
+        ModelsPathVerdict.noModelClasses,
+      );
+    });
+  });
+
+  group('saving what init learned', () {
+    String globalAt() => p.join(temp.path, 'global', 'config.json');
+
+    test('a machine-wide answer writes every setting given', () {
+      applyInit(
+        const InitAnswers(models: 'lib/models', gui: true, editor: 'cursor'),
+        projectRoot: temp.path,
+        globalConfigPath: globalAt(),
+      );
+
+      expect(
+        ModelsConfig.resolve(temp.path, globalConfigPath: globalAt())!.relative,
+        'lib/models',
+      );
+      expect(
+        ModelsConfig.readGuiPreference(globalConfigPath: globalAt()),
+        isTrue,
+      );
+      expect(ModelsConfig.readEditor(globalConfigPath: globalAt()), 'cursor');
+    });
+
+    test('an unanswered question is left unwritten, not written false', () {
+      applyInit(
+        const InitAnswers(models: 'lib/models'),
+        projectRoot: temp.path,
+        globalConfigPath: globalAt(),
+      );
+
+      expect(
+        ModelsConfig.readGuiPreference(globalConfigPath: globalAt()),
+        isNull,
+        reason: 'nobody was asked, so nothing was declined',
+      );
+      expect(ModelsConfig.readEditor(globalConfigPath: globalAt()), isNull);
+    });
+
+    test('a project answer writes only the models directory, in .dart_tool',
+        () {
+      applyInit(
+        const InitAnswers(models: 'lib/api', forProject: true),
+        projectRoot: temp.path,
+        globalConfigPath: globalAt(),
+      );
+
+      expect(ModelsConfig.readProject(temp.path), 'lib/api');
+      expect(File(globalAt()).existsSync(), isFalse,
+          reason: 'a per-project answer says nothing about this machine');
+    });
+
+    test('it reports where it wrote', () {
+      final written = applyInit(
+        const InitAnswers(models: 'lib/api', forProject: true),
+        projectRoot: temp.path,
+        globalConfigPath: globalAt(),
+      );
+
+      expect(written, ModelsConfig.projectPath(temp.path));
+    });
+  });
+
+  group('recognising a Dart project', () {
+    test('a directory with a pubspec is one', () {
+      write('pubspec.yaml', 'name: demo\n');
+      expect(looksLikeDartProject(temp.path), isTrue);
+    });
+
+    test('a bare directory is not', () {
+      expect(looksLikeDartProject(temp.path), isFalse);
+    });
+  });
+}
