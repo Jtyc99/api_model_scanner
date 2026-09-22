@@ -3,6 +3,8 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
+import '../cli/targets.dart';
+
 import '../model.dart';
 import 'report.dart';
 import 'selection.dart';
@@ -219,7 +221,7 @@ class CacheStore {
 
   /// Renders the report for [cache] without writing it.
   String renderReport(UnusedCache cache) =>
-      ReportRenderer(directory).render(cache);
+      ReportRenderer(directory, host: currentHostIde()).render(cache);
 
   /// Reads the report back and returns whatever the user ticked.
   ///

@@ -77,4 +77,39 @@ class ReportTest {
     assertTrue(report.classes.isEmpty())
     assertNull(report.selectAll)
   }
+
+  @Test
+  fun `a report written from Android Studio still locates its source`() {
+    // The CLI picks the link form from the editor the scan was run in, so a
+    // report made in Android Studio carries its IDE's own open-file URL and
+    // no `vscode://` at all. Reading only the latter left the Line column
+    // dead on exactly the reports this editor is for.
+    val report = parseReport(
+      """
+## Order
+
+- [ ] **`currency`** · 1 part
+  - [ ] `field declaration` [line 4](../../lib/api/order.dart#L4) · [Android Studio](http://localhost:63342/api/file/tmp/p/lib/api/order.dart:4)
+""".trimIndent(),
+    )
+
+    val part = report.classes.single().fields.single().parts.single()
+    assertEquals("/tmp/p/lib/api/order.dart", part.file)
+    assertEquals(4, part.sourceLine)
+  }
+
+  @Test
+  fun `an encoded path comes back readable`() {
+    val report = parseReport(
+      """
+## Order
+
+- [ ] **`x`** · 1 part
+  - [ ] `field declaration` [l](../a.dart#L2) · [VS Code](vscode://file/tmp/my%20dir/a.dart:2:1)
+""".trimIndent(),
+    )
+
+    assertEquals("/tmp/my dir/a.dart",
+      report.classes.single().fields.single().parts.single().file)
+  }
 }

@@ -74,7 +74,12 @@ private val CLASS_TOGGLE = Regex("""^-\s*\[([ xX])]\s*\*\*All of\s*`([^`]+)`\*\*
 private val FIELD = Regex("""^-\s*\[([ xX])]\s*\*\*`([^`]+)`\*\*""")
 private val PART = Regex("""^\s+-\s*\[([ xX])]\s*`([^`]*)`""")
 private val CLASS_FILE = Regex("""^└\s*\[([^]]+)]""")
+// The CLI writes whichever of these the editor in use understands, so both
+// have to be read: a report made in Android Studio carries no `vscode://`
+// link at all, and reading only that left every Line cell empty.
 private val VSCODE_LINK = Regex("""]\(vscode://file([^:)]+):(\d+):\d+\)""")
+private val JETBRAINS_LINK =
+  Regex("""]\(https?://[^/)]*/api/file([^:)]+):(\d+)\)""")
 private val SUMMARY = Regex("""^\*\*\d+ fields?\*\*""")
 
 private fun ticked(box: String) = box.lowercase() == "x"
@@ -179,14 +184,16 @@ fun parseReport(text: String): Report {
 
     val part = PART.find(line)
     if (part != null && currentField != null) {
-      val link = VSCODE_LINK.find(line)
+      val link = VSCODE_LINK.find(line) ?: JETBRAINS_LINK.find(line)
       currentField!!.parts.add(
         Part(
           label = part.groupValues[2].trim(),
           checked = ticked(part.groupValues[1]),
           line = i,
           column = boxColumn(line),
-          file = link?.groupValues?.get(1),
+          // The CLI percent-encodes the path, so a directory with a space in
+          // it reaches the filesystem as it is actually spelled.
+          file = link?.groupValues?.get(1)?.let(::decodePath),
           sourceLine = link?.groupValues?.get(2)?.toIntOrNull(),
         ),
       )
@@ -194,4 +201,30 @@ fun parseReport(text: String): Report {
   }
 
   return Report(title = title, summary = summary, selectAll = selectAll, classes = classes)
+}
+
+/// Undoes the percent-encoding the CLI applies to a path in a link.
+///
+/// Hand-rolled to keep this module free of any platform dependency; the only
+/// escapes the writer produces are `%XX`.
+fun decodePath(encoded: String): String {
+  if (!encoded.contains('%')) {
+    return encoded
+  }
+  val out = StringBuilder()
+  var i = 0
+  while (i < encoded.length) {
+    val c = encoded[i]
+    if (c == '%' && i + 2 < encoded.length) {
+      val code = encoded.substring(i + 1, i + 3).toIntOrNull(16)
+      if (code != null) {
+        out.append(code.toChar())
+        i += 3
+        continue
+      }
+    }
+    out.append(c)
+    i++
+  }
+  return out.toString()
 }

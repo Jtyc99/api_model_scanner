@@ -49,6 +49,12 @@ AST-aware source edits.
 
 ### The editors
 
+- The link that lands the cursor on a line follows the editor the scan was run
+  from. `vscode://` is a scheme only VS Code answers, so a report written from
+  Android Studio carried a row that did nothing; it now carries the IDE's own
+  open-file URL instead. Both editors' plugins read either form, so a report
+  written in one is still navigable in the other.
+
 - Android Studio gets the same table as a plugin. `init` offers one editor,
   chosen by the terminal it is run from: both IDEs name themselves in the
   environment, so it offers the plugin from Android Studio's terminal and the

@@ -2,6 +2,8 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
+import '../cli/targets.dart';
+
 import '../model.dart';
 import '../model_field_fixer.dart';
 import 'unused_cache.dart';
@@ -21,7 +23,11 @@ class ReportRenderer {
   /// Directory the report lives in.
   final String directory;
 
-  ReportRenderer(this.directory);
+  /// The IDE the scan was run from, which decides the form of the link that
+  /// lands on a line. Null when it could not be told.
+  final HostIde? host;
+
+  ReportRenderer(this.directory, {this.host});
 
   String render(UnusedCache cache) {
     final buffer = StringBuffer();
@@ -56,9 +62,9 @@ class ReportRenderer {
         'With nothing ticked, both commands offer to act on everything.');
     buffer.writeln();
     buffer.writeln('Every row links twice, because no single link works '
-        'everywhere: **line N** is relative and opens in Android Studio / '
-        'IntelliJ (and VS Code), while **VS Code** is the only form that '
-        'reliably lands the cursor on the exact line.');
+        'everywhere: **line N** is a relative path, which most editors will '
+        'open, while **${deepLinkLabel(host)}** is the form that lands the '
+        'cursor on the exact line in the editor this scan was run from.');
     buffer.writeln();
     buffer.writeln('- [ ] **SELECT EVERYTHING**');
     buffer.writeln();
@@ -121,7 +127,7 @@ class ReportRenderer {
             buffer.writeln(
               '  - [ ] `${edit.label.padRight(width)}` '
               '${_relative('line ${edit.line}', filePath, edit.line)} · '
-              '${_vscode('VS Code', filePath, edit.line)}',
+              '${_deep(deepLinkLabel(host), filePath, edit.line)}',
             );
           }
           buffer.writeln();
@@ -177,19 +183,46 @@ class ReportRenderer {
     return '[$text]($relative$fragment)';
   }
 
-  /// `vscode://file/<path>:<line>:<col>` — the one form that reliably puts
-  /// the cursor on the line, and only in VS Code. Absolute, so it means
-  /// nothing off this machine; harmless for a report that lives in
-  /// `.dart_tool/` and is never shared.
-  String _vscode(String text, String target, [int? line]) {
-    final encoded = Uri.encodeFull(p.absolute(target));
-    final position = line == null ? '' : ':$line:1';
-    return '[$text](vscode://file$encoded$position)';
-  }
+  /// The link that lands on the exact line, for whichever editor is in use.
+  String _deep(String text, String target, [int? line]) =>
+      deepLink(text: text, file: p.absolute(target), line: line, host: host);
 
   String _formatTime(DateTime time) {
     String two(int v) => v.toString().padLeft(2, '0');
     return '${time.year}-${two(time.month)}-${two(time.day)} '
         '${two(time.hour)}:${two(time.minute)}';
   }
+}
+
+/// How to name the editor a [deepLink] is built for.
+String deepLinkLabel(HostIde? host) =>
+    host == HostIde.jetBrains ? 'Android Studio' : 'VS Code';
+
+/// A Markdown link that opens [file] at [line] in the editor in use.
+///
+/// There is no one form that works everywhere. VS Code answers its own
+/// `vscode://` scheme; a JetBrains IDE does not know that scheme at all, and
+/// opens a file through the small HTTP server it runs for the purpose — which
+/// is why a report written from Android Studio's terminal used to carry a row
+/// that did nothing when clicked.
+///
+/// Absolute either way, so the link means nothing off this machine — harmless
+/// for a report that lives in `.dart_tool/` and is never shared.
+String deepLink({
+  required String text,
+  required String file,
+  required int? line,
+  required HostIde? host,
+}) {
+  final encoded = Uri.encodeFull(file);
+
+  if (host == HostIde.jetBrains) {
+    // The IDE resolves the file against its open projects, so this works
+    // while the project is open — which is when anyone is reading the report.
+    final at = line == null ? '' : ':$line';
+    return '[$text](http://localhost:63342/api/file$encoded$at)';
+  }
+
+  final position = line == null ? '' : ':$line:1';
+  return '[$text](vscode://file$encoded$position)';
 }
