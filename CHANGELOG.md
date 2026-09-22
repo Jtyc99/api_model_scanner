@@ -23,8 +23,8 @@ AST-aware source edits.
   instead of losing it and forcing a rescan. Once both are empty, both go.
 
 - `-a` / `--accept-all` answers every prompt affirmatively, for unattended
-  runs. It implies `--all`, and skips the editor-install offer rather than
-  accepting it.
+  runs. It implies `--all`, and accepts the first-run offer to install the
+  VS Code editor.
 
 ### Detection
 

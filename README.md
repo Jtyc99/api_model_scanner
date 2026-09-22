@@ -264,9 +264,11 @@ the same way `--all` does:
 amscan scan -a && amscan remove -a
 ```
 
-It deliberately does **not** accept the offer to install the VS Code editor:
-installing software is not part of the job you asked for, so that one is left
-unanswered and asked again when someone is there to answer it.
+That includes the first-run offer to install the VS Code editor, which `-a`
+accepts — an unattended run should end up in the same state as an attended one
+that said yes to everything. Decline it once with `amscan gui uninstall` (or
+answer No interactively) and the answer is remembered, so `-a` will not
+install it again.
 
 ## Files it writes
 

@@ -101,9 +101,8 @@ abstract class _ModelCommand extends Command<int> {
       abbr: 'a',
       negatable: false,
       help: 'Answer every prompt with its affirmative and never wait for '
-          'input — for unattended runs. Implies --all. The offer to install '
-          'the VS Code editor is skipped rather than accepted, since '
-          'installing it is not part of the job you asked for.',
+          'input — for unattended runs. Implies --all, and accepts the '
+          'first-run offer to install the VS Code editor.',
     );
     argParser.addOption(
       'models',
@@ -134,12 +133,11 @@ abstract class _ModelCommand extends Command<int> {
     if (ModelsConfig.readGuiPreference() != null) {
       return; // Already answered; `amscan gui` changes it.
     }
-    if (!canPrompt || !codeCliAvailable() || guiInstalled()) {
+    if (!codeCliAvailable() || guiInstalled()) {
       return;
     }
-    // Left unanswered on purpose, so it is asked again when someone is
-    // actually there: installing an editor is not part of a scan.
-    if (acceptAll) {
+    // Nothing to ask with, and no standing answer to obey.
+    if (!canPrompt && !acceptAll) {
       return;
     }
 
@@ -148,10 +146,15 @@ abstract class _ModelCommand extends Command<int> {
         'checkbox cells, instead of a Markdown list.');
     say('');
 
-    final choice = selectSingle('  Install it?', [
-      'No — the Markdown report is fine',
-      'Yes — install it now',
-    ]);
+    // `-a` accepts this like any other prompt. Leaving it unanswered would
+    // mean an unattended run never gets the editor and is asked again every
+    // time, which is the opposite of what the flag is for.
+    final choice = acceptAll
+        ? 1
+        : selectSingle('  Install it?', [
+            'No — the Markdown report is fine',
+            'Yes — install it now',
+          ]);
 
     if (choice != 1) {
       ModelsConfig.writeGuiPreference(false);
