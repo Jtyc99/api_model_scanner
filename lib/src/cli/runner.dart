@@ -13,6 +13,7 @@ import '../version.dart';
 import 'config.dart';
 import 'gui.dart';
 import 'init.dart';
+import 'jetbrains.dart';
 import 'uninstall.dart';
 import '../model.dart';
 import '../model_field_fixer.dart';
@@ -1045,6 +1046,7 @@ class _GuiStatusCommand extends Command<int> {
           'managed from here.');
       stdout.writeln('  In VS Code: Command Palette → '
           '"Shell Command: Install \'code\' command in PATH".');
+      _reportAndroidStudio();
       return 0;
     }
 
@@ -1054,6 +1056,7 @@ class _GuiStatusCommand extends Command<int> {
       false => '  You declined it; run `amscan gui install` to change that.',
       null => '  You have not been asked yet.',
     });
+    _reportAndroidStudio();
     return 0;
   }
 }
@@ -1063,12 +1066,15 @@ class _GuiInstallCommand extends Command<int> {
   String get name => 'install';
 
   @override
-  String get description => 'Install the VS Code editor for reports.';
+  String get description =>
+      'Install the report editor for every editor found.';
 
   @override
   Future<int> run() async {
+    final studio = _installForAndroidStudio();
+
     final result = installGui();
-    ModelsConfig.writeGuiPreference(result.ok);
+    ModelsConfig.writeGuiPreference(result.ok || studio);
 
     if (result.ok) {
       stdout.writeln(switch (result.source!) {
@@ -1093,8 +1099,33 @@ class _GuiInstallCommand extends Command<int> {
         }
         stderr.writeln('The Markdown report works without it.');
     }
-    return 1;
+
+    // Android Studio having worked is still a success: the point of the
+    // command is to end up with the editor somewhere it can be used.
+    return studio ? 0 : 1;
   }
+}
+
+/// Installs the plugin into the newest Android Studio, if there is one.
+///
+/// Returns whether anything was installed, so `gui install` can succeed on a
+/// machine that has Android Studio and no `code`.
+bool _installForAndroidStudio() {
+  final ide =
+      newestJetBrainsIde(findJetBrainsIdes(roots: currentConfigRoots()));
+  if (ide == null) {
+    return false;
+  }
+
+  final bundled = bundledIntellijPlugin();
+  if (bundled == null) {
+    stdout.writeln('${ide.name} found, but no plugin is shipped with this '
+        'copy of the tool.');
+    return false;
+  }
+
+  installIntoAndroidStudio(ide, bundled, stdout.writeln);
+  return ide.hasPlugin;
 }
 
 class _GuiUninstallCommand extends Command<int> {
@@ -1109,6 +1140,13 @@ class _GuiUninstallCommand extends Command<int> {
     // Recorded either way: `deactivate` cannot reach the editor, so the
     // answer has to survive for the next install to respect it.
     ModelsConfig.writeGuiPreference(false);
+
+    for (final ide in findJetBrainsIdes(roots: currentConfigRoots())) {
+      if (removeIntellijPlugin(ide)) {
+        stdout.writeln('Removed the plugin from ${ide.name}. '
+            'Restart it to finish.');
+      }
+    }
 
     if (uninstallGui()) {
       stdout.writeln('Removed $extensionId.');
@@ -1349,6 +1387,7 @@ class InitCommand extends Command<int> {
     if (!_forProject) {
       editor = _askForEditor();
       gui = _askForGui(editor);
+      _maybeOfferAndroidStudio();
     }
 
     // A project run with nothing to say writes nothing, so there is no file
@@ -1510,6 +1549,53 @@ class InitCommand extends Command<int> {
     return _install(editor: editor);
   }
 
+  /// Offers the Android Studio editor when Android Studio is installed.
+  ///
+  /// Asked separately from the VS Code one because they are different
+  /// products with different answers: plenty of people run both, and the two
+  /// editors are installed in entirely different ways.
+  void _maybeOfferAndroidStudio() {
+    final ide = newestJetBrainsIde(
+      findJetBrainsIdes(roots: currentConfigRoots()),
+    );
+    if (ide == null) {
+      return;
+    }
+
+    _say('');
+    _say(labelled('Also found', '${ide.name} ${dim('(Auto detected)')}'));
+
+    if (ide.hasPlugin) {
+      _say('  ${good('✓')} The report editor is already installed there.');
+      return;
+    }
+
+    final bundled = bundledIntellijPlugin();
+    if (bundled == null) {
+      _say('  ${dim('No plugin shipped with this copy of the tool to '
+          'install.')}');
+      return;
+    }
+
+    _say('');
+    _say('  The same table works in Android Studio, as a plugin.');
+    _say('');
+
+    // No first, so cancelling installs nothing.
+    final choice = selectSingle('  Install it?', [
+      'No — not now',
+      'Yes — install it for ${ide.name}',
+    ]);
+
+    if (choice != 1) {
+      _say('  ${dim('Skipped. Run `amscan gui install` if you change your '
+          'mind.')}');
+      return;
+    }
+
+    installIntoAndroidStudio(ide, bundled, _say);
+  }
+
   bool _install({String? editor}) {
     final result = installGui(editor: editor);
     if (result.ok) {
@@ -1567,6 +1653,21 @@ class InitCommand extends Command<int> {
   }
 }
 
+/// Says whether the Android Studio plugin is installed, for each IDE found.
+void _reportAndroidStudio() {
+  final ides = findJetBrainsIdes(roots: currentConfigRoots());
+  if (ides.isEmpty) {
+    return;
+  }
+  stdout.writeln('');
+  stdout.writeln('Plugin: $intellijPluginName');
+  for (final ide in orderedByVersion(ides)) {
+    stdout.writeln(ide.hasPlugin
+        ? '  ${ide.name}: installed.'
+        : '  ${ide.name}: not installed.');
+  }
+}
+
 /// `amscan uninstall`
 ///
 /// The opposite of `init`: takes the editor extension, the settings and the
@@ -1610,6 +1711,9 @@ class UninstallCommand extends Command<int> {
     final keepTool = argResults!['keep-tool'] as bool;
     final editor = resolvedEditor();
     final hasExtension = guiInstalled(editor: editor);
+    final withPlugin = findJetBrainsIdes(roots: currentConfigRoots())
+        .where((ide) => ide.hasPlugin)
+        .toList();
 
     _say('');
     _say(bold(headingLine('Uninstall')));
@@ -1642,6 +1746,8 @@ class UninstallCommand extends Command<int> {
 
     final lines = <String>[
       if (hasExtension) '$extensionId ${dim('($editor)')}',
+      for (final ide in withPlugin)
+        '$intellijPluginName ${dim('(${ide.name})')}',
       if (plan.projectDirectory != null)
         '${shortPath(plan.projectDirectory!, projectRoot)} '
             '${dim('settings and cached reports')}',
@@ -1688,6 +1794,12 @@ class UninstallCommand extends Command<int> {
           ? '  ${good('✓')} Removed $extensionId'
           : '  ${warnish('!')} Could not remove $extensionId — '
               'try `$editor --uninstall-extension $extensionId`');
+    }
+
+    for (final ide in withPlugin) {
+      if (removeIntellijPlugin(ide)) {
+        _say('  ${good('✓')} Removed $intellijPluginName from ${ide.name}');
+      }
     }
 
     for (final directory in applyUninstall(plan)) {

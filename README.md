@@ -206,6 +206,12 @@ on click — see [editors/vscode](editors/vscode). `init` offers to install it;
 `amscan gui install` and `amscan gui uninstall` manage it after that. It
 writes to the same Markdown file, so nothing depends on it being installed.
 
+**Android Studio** gets the same table, as an IntelliJ plugin — see
+[editors/intellij](editors/intellij). `.vsix` is VS Code's format and could
+never load there, so it is a separate build. `init` offers it when it finds an
+Android Studio installation, and `gui install` installs into both. A JetBrains
+IDE only notices a new plugin when it restarts.
+
 It works in the VS Code forks too. They keep the same extension CLI, so
 `--editor=cursor` or `--editor=windsurf` drives them; because they use OpenVSX
 rather than the VS Code Marketplace, the copy that lands there is the `.vsix`
@@ -256,7 +262,7 @@ than a broken build.
 | `scan` | Find unused fields, write and open the report |
 | `remove` | Delete ticked code, then tidy imports and empty files |
 | `disable` | Comment out ticked code, or `--undo` / `--remove` what is commented |
-| `gui install` | Install the VS Code table editor (Marketplace, else bundled) |
+| `gui install` | Install the table editor into every editor found |
 | `gui uninstall` | Remove it — `dart pub global deactivate` cannot |
 | `gui status` | Show whether it is installed, and what you answered |
 | `clear` | Delete this project's cached results (keeps your settings) |

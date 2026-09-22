@@ -1,2 +1,5 @@
 build/
 .gradle/
+
+# plugin/ is NOT ignored: `dart pub publish` ships what git tracks, and the
+# CLI installs by copying that directory. Rebuild it before any release.

@@ -47,7 +47,15 @@ AST-aware source edits.
   `init` and nowhere else, so a scan in CI never adds an extension to the
   build machine.
 
-### The editor
+### The editors
+
+- Android Studio gets the same table as a plugin. `init` offers it when it
+  finds an installation, `gui install` installs into both editors, and
+  `gui status`, `gui uninstall` and `uninstall` cover both. A JetBrains IDE
+  has no supported way to install a plugin from a local file on the command
+  line, so this copies the unpacked plugin into the IDE's `plugins` directory
+  the way the IDE itself would — which is why it is shipped unpacked rather
+  than zipped.
 
 - The editor command is configurable, so the VS Code forks work: they keep the
   same extension CLI, and since they use OpenVSX rather than the Marketplace,
