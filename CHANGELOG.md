@@ -8,10 +8,20 @@ AST-aware source edits.
 
 ### Commands
 
-- `set-default <dir>` remembers where your API models live, machine-wide or —
-  with `--project` — for one repo, which wins over it. Required once: `scan`,
+- `init` sets the tool up, once, after installing — pub runs nothing on
+  `activate`, so nothing can do it for you. It offers the directories under
+  `lib/` that declare `fromJson`/`toJson` rather than asking you to type one,
+  picks the editor command when more than one is installed, and offers the
+  report editor. `init --project` points one repo somewhere else, and wins
+  over the machine-wide setting. A models directory is required: `scan`,
   `remove` and `disable` exit 78 rather than guess, since falling back to all
-  of `lib` would treat every class in the app as an API model.
+  of `lib` would treat every class in the app as an API model. The advice they
+  print distinguishes never having run `init` from having run it and needing
+  this project pointed.
+- Every `init` answer can be a flag instead — `amscan init <dir>
+  --editor=<command> --gui=yes|no` — so a provisioning script never needs a
+  terminal. `-a` leaves anything unflagged unset rather than guessing, and
+  installs nothing.
 - `scan` writes a tickable Markdown report and opens it.
 - `remove` deletes the ticked code, then strips imports left unused and
   deletes files left empty — keeping any file something still imports.
@@ -23,8 +33,17 @@ AST-aware source edits.
   instead of losing it and forcing a rescan. Once both are empty, both go.
 
 - `-a` / `--accept-all` answers every prompt affirmatively, for unattended
-  runs. It implies `--all`, and accepts the first-run offer to install the
-  VS Code editor.
+  runs. It implies `--all`. It installs nothing: the editor is offered by
+  `init` and nowhere else, so a scan in CI never adds an extension to the
+  build machine.
+
+### The editor
+
+- The editor command is configurable, so the VS Code forks work: they keep the
+  same extension CLI, and since they use OpenVSX rather than the Marketplace,
+  the copy that lands there is the `.vsix` bundled with this package. It also
+  decides which editor opens the report, so window reuse works on a machine
+  with no `code` on PATH.
 
 ### Detection
 

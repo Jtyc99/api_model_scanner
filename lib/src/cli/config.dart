@@ -11,7 +11,7 @@ enum ModelsSource {
   /// `.dart_tool/api_model_scanner/config.json` in this project.
   project,
 
-  /// The machine-wide default written by `set-default`.
+  /// The machine-wide default written by `init`.
   global,
 }
 

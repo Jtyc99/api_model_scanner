@@ -115,7 +115,7 @@ void main() {
       );
     });
 
-    test('survives a later set-default', () {
+    test('survives a later models write', () {
       ModelsConfig.writeGuiPreference(true, globalConfigPath: globalAt());
       ModelsConfig.writeGlobalTo(globalAt(), 'lib/models');
 
@@ -128,7 +128,7 @@ void main() {
           .relative, 'lib/models');
     });
 
-    test('and set-default does not invent one', () {
+    test('and writing the models directory does not invent one', () {
       ModelsConfig.writeGlobalTo(globalAt(), 'lib/models');
       expect(
         ModelsConfig.readGuiPreference(globalConfigPath: globalAt()),

@@ -10,9 +10,9 @@ one of them alive. This tool asks the Dart analysis server who *actually*
 references each field, and reports the ones nobody does.
 
 ```
-amscan set-default lib/server/response   # once
-amscan scan                              # find them, tick what you want
-amscan remove                            # delete the ticked code
+amscan init      # once, after installing — answers where and with what
+amscan scan      # find them, tick what you want
+amscan remove    # delete the ticked code
 ```
 
 ## Read this before you run it
@@ -89,8 +89,8 @@ dart pub global activate --source git https://github.com/JtycEdgeTech/api_model_
 
 ### The optional editor
 
-The first scan offers to install the VS Code editor, and remembers the answer.
-You can also manage it directly:
+`init` offers to install it and remembers the answer. You can also manage it
+directly:
 
 ```bash
 amscan gui install     # Marketplace if reachable, otherwise the bundled copy
@@ -128,20 +128,37 @@ dependencies. Path-activated packages also do not pick up edits — re-running
 
 ## Setting up
 
-Run this once so you do not have to pass `--models` every time:
+Run `init` once after installing. Pub runs nothing on `activate` — by design —
+so nothing can do this for you:
 
 ```bash
-amscan set-default lib/server/response
+amscan init
 ```
 
-That is machine-wide. For a repo that keeps its models elsewhere:
+It looks through `lib/` for classes that declare `fromJson`/`toJson`, offers
+the directories it found so you can pick rather than type, asks which editor
+command to use if more than one is installed, and offers the report editor.
+
+For a repo that keeps its models somewhere else:
 
 ```bash
-amscan set-default lib/api/models --project
+amscan init --project
 ```
 
 A project setting wins over the machine-wide one, and `--models=<dir>` beats
-both for a single run.
+both for a single run. If your projects have nothing in common, answer
+*"skip — I'll set it per project"* to the first question and use
+`init --project` in each.
+
+Nothing here has to be interactive. Every answer can be a flag, which is what
+a provisioning script or a CI job should use:
+
+```bash
+amscan init lib/server/response --editor=code --gui=no
+```
+
+`-a` never waits for input, and leaves anything you did not pass as a flag
+unset rather than guessing — in particular it installs nothing.
 
 `--models` also accepts a single `.dart` file, which keeps a scan to seconds
 while you narrow something down:
@@ -162,9 +179,15 @@ The project file sits in `.dart_tool/`, which Dart projects already ignore, so
 remembering a directory never dirties your working tree. `clear` leaves it
 alone — it is a setting, not a cached result.
 
-With nothing set, those commands exit with code 78 and tell you what to run.
-`set-default`, `clear`, and `disable --undo` / `--remove` work regardless —
-the last two act on the disabled record, which already names its own files.
+With nothing set, those commands exit with code 78 and tell you what to run —
+`amscan init` if you have never run it, `amscan init --project` if you have
+and this project is the one that needs pointing. `init`, `gui`, `clear`, and
+`disable --undo` / `--remove` work regardless; the last two act on the
+disabled record, which already names its own files.
+
+The machine-wide file also holds which editor command to drive and whether
+you wanted the report editor. Those are facts about the machine, not the
+repository, so `init --project` never writes them.
 
 ## The workflow
 
@@ -177,10 +200,14 @@ those.
 
 There is also a **VS Code editor** that renders the report as a real table
 with checkbox cells, restricts editing to the checkboxes, and jumps to source
-on click — see [editors/vscode](editors/vscode). The first scan offers to
-install it; `amscan gui install` and `amscan gui uninstall` manage it after
-that. It writes to the same Markdown file, so nothing depends on it being
-installed.
+on click — see [editors/vscode](editors/vscode). `init` offers to install it;
+`amscan gui install` and `amscan gui uninstall` manage it after that. It
+writes to the same Markdown file, so nothing depends on it being installed.
+
+It works in the VS Code forks too. They keep the same extension CLI, so
+`--editor=cursor` or `--editor=windsurf` drives them; because they use OpenVSX
+rather than the VS Code Marketplace, the copy that lands there is the `.vsix`
+bundled with this package.
 
 Checkboxes are list items rather than table cells on purpose: GFM only makes
 them interactive inside lists, in every mainstream preview. Toggling one in
@@ -222,7 +249,8 @@ than a broken build.
 
 | Command | What it does |
 |---|---|
-| `set-default <dir>` | Remember where your models live |
+| `init` | Set up the tool — models directory, editor, report editor |
+| `init --project` | Set the models directory for this project only |
 | `scan` | Find unused fields, write and open the report |
 | `remove` | Delete ticked code, then tidy imports and empty files |
 | `disable` | Comment out ticked code, or `--undo` / `--remove` what is commented |
@@ -235,12 +263,15 @@ than a broken build.
 
 | Flag | Commands | What it does |
 |---|---|---|
-| `--project` | `set-default` | Write the setting for this project instead of machine-wide |
+| `--project` | `init` | Write the setting for this project instead of machine-wide |
+| `--editor=<cmd>` | `init` | Which editor command to drive (`code`, `cursor`, `windsurf`, `code-insiders`) |
+| `--gui=yes\|no` | `init` | Answer the report-editor question without being asked |
 | `--models=<dir>` | `scan`, `remove`, `disable` | Override the remembered default for one run |
 | `--[no-]rescan` | `scan` | Answer the cached-results prompt up front |
 | `--[no-]open` | `scan` | Open the report in your editor (default: on) |
 | `--[no-]format` | `remove`, `disable` | Run `dart format` on modified files (default: on) |
 | `-a`, `--accept-all` | `scan`, `remove`, `disable` | Answer every prompt affirmatively; never wait for input |
+| `-a`, `--accept-all` | `init` | Never wait for input; leave unflagged answers unset |
 | `--all` | `remove`, `disable` | Act on everything, ignoring ticks |
 | `--force` | `remove`, `disable` | Allow a dirty tree, and offer a rescan first |
 | `--undo` | `disable` | Uncomment previously disabled fields |
@@ -264,11 +295,9 @@ the same way `--all` does:
 amscan scan -a && amscan remove -a
 ```
 
-That includes the first-run offer to install the VS Code editor, which `-a`
-accepts — an unattended run should end up in the same state as an attended one
-that said yes to everything. Decline it once with `amscan gui uninstall` (or
-answer No interactively) and the answer is remembered, so `-a` will not
-install it again.
+It installs nothing. The editor is offered by `init` and nowhere else, so
+there is no prompt here for `-a` to accept — and a scan in CI never quietly
+adds an extension to the build machine.
 
 ## Files it writes
 
