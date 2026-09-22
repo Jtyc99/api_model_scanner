@@ -96,6 +96,15 @@ class ApiModelScannerRunner extends CommandRunner<int> {
 /// Shared plumbing: `--models`, the cache, and the scan step.
 abstract class _ModelCommand extends Command<int> {
   _ModelCommand() {
+    argParser.addFlag(
+      'accept-all',
+      abbr: 'a',
+      negatable: false,
+      help: 'Answer every prompt with its affirmative and never wait for '
+          'input — for unattended runs. Implies --all. The offer to install '
+          'the VS Code editor is skipped rather than accepted, since '
+          'installing it is not part of the job you asked for.',
+    );
     argParser.addOption(
       'models',
       help: 'Directory of API model classes — or a single `.dart` file — '
@@ -104,6 +113,9 @@ abstract class _ModelCommand extends Command<int> {
       valueHelp: 'dir',
     );
   }
+
+  /// Whether prompts should answer themselves.
+  bool get acceptAll => argResults!['accept-all'] as bool;
 
   String get projectRoot => Directory.current.absolute.path;
 
@@ -123,6 +135,11 @@ abstract class _ModelCommand extends Command<int> {
       return; // Already answered; `amscan gui` changes it.
     }
     if (!canPrompt || !codeCliAvailable() || guiInstalled()) {
+      return;
+    }
+    // Left unanswered on purpose, so it is asked again when someone is
+    // actually there: installing an editor is not part of a scan.
+    if (acceptAll) {
       return;
     }
 
@@ -382,8 +399,10 @@ class ScanCommand extends _ModelCommand {
       say('');
 
       final flag = argResults!['rescan'] as bool?;
+      // An explicit --rescan/--no-rescan wins; otherwise -a says yes.
       final rescan = flag ??
-          (!canPrompt ||
+          (acceptAll ||
+              !canPrompt ||
               selectSingle('  Rescan the project?', [
                     'Yes — rescan now (replaces the cached report)',
                     'No — keep the existing report',
@@ -496,7 +515,8 @@ abstract class _MutatingCommand extends _ModelCommand {
       say('Cached results found — scanned ${result.age}, '
           '${result.fields.length} potentially unused.');
       say('');
-      final rescan = !canPrompt ||
+      final rescan = acceptAll ||
+          !canPrompt ||
           selectSingle('  Rescan before writing?', [
                 'Yes — rescan first (the tree may have changed)',
                 'No — use the cached report',
@@ -601,7 +621,9 @@ abstract class _MutatingCommand extends _ModelCommand {
   /// Reads the ticks from the report, falling back to a prompt when nothing
   /// is selected. Returns null when the user declines.
   Selection? _resolveSelection(UnusedCache result) {
-    if (argResults!['all'] as bool) {
+    // --accept-all implies --all: the affirmative answer to "nothing is
+    // ticked, act on everything?" is exactly what --all means.
+    if (argResults!['all'] as bool || acceptAll) {
       return const Selection(all: true);
     }
 
@@ -621,7 +643,7 @@ abstract class _MutatingCommand extends _ModelCommand {
     if (!canPrompt) {
       stderr.writeln(
         'Nothing selected and no terminal to ask on. '
-        'Pass --all to act on every unused field.',
+        'Pass --all, or -a to answer every prompt.',
       );
       return null;
     }
@@ -707,7 +729,9 @@ class DisableCommand extends _MutatingCommand {
     List<DisabledField> all, {
     required bool restore,
   }) {
-    if (argResults!['all'] as bool) {
+    // --accept-all implies --all: the affirmative answer to "nothing is
+    // ticked, act on everything?" is exactly what --all means.
+    if (argResults!['all'] as bool || acceptAll) {
       return const Selection(all: true);
     }
 
@@ -726,7 +750,7 @@ class DisableCommand extends _MutatingCommand {
     if (!canPrompt) {
       stderr.writeln(
         'Nothing selected and no terminal to ask on. '
-        'Pass --all to act on every disabled field.',
+        'Pass --all, or -a to answer every prompt.',
       );
       return null;
     }

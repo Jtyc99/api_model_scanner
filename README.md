@@ -240,6 +240,7 @@ than a broken build.
 | `--[no-]rescan` | `scan` | Answer the cached-results prompt up front |
 | `--[no-]open` | `scan` | Open the report in your editor (default: on) |
 | `--[no-]format` | `remove`, `disable` | Run `dart format` on modified files (default: on) |
+| `-a`, `--accept-all` | `scan`, `remove`, `disable` | Answer every prompt affirmatively; never wait for input |
 | `--all` | `remove`, `disable` | Act on everything, ignoring ticks |
 | `--force` | `remove`, `disable` | Allow a dirty tree, and offer a rescan first |
 | `--undo` | `disable` | Uncomment previously disabled fields |
@@ -254,6 +255,18 @@ requiring a clean one would make undo unreachable exactly when you want it.
 With nothing ticked, `remove` and `disable` ask before acting on everything and
 default to **No**. `--all` answers up front. With no terminal to ask on they
 refuse rather than hang.
+
+For an unattended run, `-a` answers *every* prompt — the cached-results offer,
+the rescan after `--force`, and the nothing-ticked question, which it answers
+the same way `--all` does:
+
+```bash
+amscan scan -a && amscan remove -a
+```
+
+It deliberately does **not** accept the offer to install the VS Code editor:
+installing software is not part of the job you asked for, so that one is left
+unanswered and asked again when someone is there to answer it.
 
 ## Files it writes
 

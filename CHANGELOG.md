@@ -22,6 +22,10 @@ AST-aware source edits.
   `--undo` returns a field to the unused report — in its original position —
   instead of losing it and forcing a rescan. Once both are empty, both go.
 
+- `-a` / `--accept-all` answers every prompt affirmatively, for unattended
+  runs. It implies `--all`, and skips the editor-install offer rather than
+  accepting it.
+
 ### Detection
 
 - Accessor-aware: a field stored privately and published through a getter is
