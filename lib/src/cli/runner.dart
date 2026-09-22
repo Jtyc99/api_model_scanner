@@ -1106,10 +1106,25 @@ bool installInto(EditorTarget target, void Function(String) say) {
         say('      ${dim('no plugin is shipped with this copy of the tool')}');
         return false;
       }
+      final running = ide.isRunning;
       installIntellijPlugin(ide: ide, source: bundled);
       if (ide.hasPlugin) {
         say('  ${good('✓')} ${ide.name}');
-        say('      ${dim('restart it to use the editor')}');
+
+        // The IDE reads its plugins directory at startup and never again, so
+        // a copy made underneath a running one is invisible until it
+        // restarts. Its own installer does not have that problem: every
+        // extension point this plugin uses is declared dynamic, so loading
+        // it through the IDE applies straight away.
+        final archive = bundledIntellijZip();
+        if (running && archive != null) {
+          say('      ${dim('restart it to use the editor')}');
+          say('      ${dim('or, without restarting: Settings → Plugins → '
+              '⚙ → Install Plugin from Disk')}');
+          say('      ${dim(archive)}');
+        } else {
+          say('      ${dim('restart it to use the editor')}');
+        }
         return true;
       }
       say('  ${warnish('!')} ${ide.name}');

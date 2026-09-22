@@ -173,6 +173,32 @@ void _copyInto(Directory source, Directory target) {
   }
 }
 
+/// The plugin archive shipped inside this package, if it is still there.
+///
+/// Kept beside the unpacked copy because the two serve different installs:
+/// copying the directory in is what `gui install` does, and the IDE only
+/// notices that at startup. Handing this `.zip` to the IDE's own
+/// "Install Plugin from Disk" goes through its plugin machinery instead,
+/// which loads the plugin straight away — every extension point it uses is
+/// declared `dynamic`, so nothing forces a restart.
+String? bundledIntellijZip() {
+  final root = _packageRoot();
+  if (root == null) {
+    return null;
+  }
+  final directory = Directory(p.join(root, 'editors', 'intellij'));
+  if (!directory.existsSync()) {
+    return null;
+  }
+  final archives = directory
+      .listSync()
+      .whereType<File>()
+      .where((file) => file.path.endsWith('.zip'))
+      .toList()
+    ..sort((a, b) => b.path.compareTo(a.path));
+  return archives.isEmpty ? null : archives.first.path;
+}
+
 /// The plugin shipped inside this package, if it is still there.
 ///
 /// Resolved through a `package:` URI for the same reason as the `.vsix`:
@@ -263,5 +289,24 @@ String? _which(String executable) {
     return first.isEmpty ? null : first;
   } catch (_) {
     return null;
+  }
+}
+
+/// Whether this IDE appears to be running right now.
+///
+/// Only a hint, and deliberately cheap: it decides whether to mention the
+/// no-restart route, nothing more. A wrong answer costs one extra line of
+/// advice.
+extension JetBrainsIdeRunning on JetBrainsIde {
+  bool get isRunning {
+    if (!Platform.isMacOS) {
+      return false;
+    }
+    try {
+      final result = Process.runSync('pgrep', ['-f', 'Android Studio.app']);
+      return result.exitCode == 0;
+    } catch (_) {
+      return false;
+    }
   }
 }

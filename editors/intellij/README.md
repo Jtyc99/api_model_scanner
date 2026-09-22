@@ -39,15 +39,36 @@ a sandboxed IDE, and there is nothing here that needs one. The logic lives in
 `:report` and tests itself without an IDE — the same property that lets
 `report.ts` be tested without VS Code.
 
-## Installing by hand
+## Installing, and why a restart is usually needed
+
+Every extension point this plugin uses is declared `dynamic="true"` by the
+platform, so the plugin itself can be loaded and unloaded without restarting.
+Whether you actually get that depends on *how* it is installed:
+
+| Route | Restart? |
+|---|---|
+| **Settings → Plugins → ⚙ → Install Plugin from Disk**, pick the `.zip` | No — the IDE loads it there and then |
+| `amscan gui install`, or copying into `plugins/` yourself | Yes — the IDE reads that directory only at startup |
+
+The copy is what `amscan gui install` does, because there is no supported way
+to ask a running IDE to install a plugin from a local file. It is the
+friction-free route when the IDE is closed; when it is open, the dialog above
+avoids the restart. `gui install` prints the archive path for exactly that.
 
 ```bash
 unzip -q build/distributions/amscan-report-intellij-0.1.0.zip \
   -d "$HOME/Library/Application Support/Google/AndroidStudio<version>/plugins"
 ```
 
-Then restart the IDE. There is no supported CLI for installing a plugin from
-a local file, which is why this copies into the plugins directory directly.
+## Working on the plugin
+
+```bash
+gradle runIde
+```
+
+Starts a sandboxed IDE with the plugin already loaded, separate from your real
+installation — the usual loop for changing the editor itself, since it needs
+no install step at all.
 
 ## Not yet verified
 
