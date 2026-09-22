@@ -99,9 +99,9 @@ Future<UsageReport> analyzeUsage({
   final classReferences = <String, List<ClassReference>>{};
 
   try {
-    onStatus?.call('Starting Dart language server...');
+    onStatus?.call('  Analyzer  starting…');
     await server.start(projectRoot);
-    onStatus?.call('Dart language server ready.');
+    onStatus?.call('  Analyzer  ready');
 
     for (var i = 0; i < fields.length; i++) {
       final field = fields[i];

@@ -28,6 +28,15 @@ AST-aware source edits.
   deletes files left empty — keeping any file something still imports.
 - `disable` comments the code out instead; `--undo` restores it and
   `--remove` deletes it for good.
+- `uninstall` reverses `init`: the editor extension, both config files, this
+  project's cached reports, then `pub global deactivate`. It refuses while any
+  field is still commented out, because `disable` keeps the original source in
+  the record rather than in the file — deleting it would strand that code
+  looking perfectly fine. `--force` accepts that, `--keep-tool` leaves the
+  command installed, `-y` skips the confirmation.
+- Terminal output is sectioned and aligned, with paths shown relative to the
+  project or against `~`. Styling switches itself off when output is not a
+  terminal, and honours `NO_COLOR`, so logs stay plain.
 - `clear` drops this project's cached results, keeping your settings. The
   records otherwise persist while either holds something, so `disable` then
   `--undo` returns a field to the unused report — in its original position —

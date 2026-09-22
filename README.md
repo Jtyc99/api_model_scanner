@@ -260,6 +260,7 @@ than a broken build.
 | `gui uninstall` | Remove it — `dart pub global deactivate` cannot |
 | `gui status` | Show whether it is installed, and what you answered |
 | `clear` | Delete this project's cached results (keeps your settings) |
+| `uninstall` | Remove the editor, every setting, and the tool itself |
 
 ### Flags
 
@@ -300,6 +301,26 @@ amscan scan -a && amscan remove -a
 It installs nothing. The editor is offered by `init` and nowhere else, so
 there is no prompt here for `-a` to accept — and a scan in CI never quietly
 adds an extension to the build machine.
+
+## Uninstalling
+
+`uninstall` is the opposite of `init`: it removes the editor extension, both
+config files, this project's cached reports, and then deactivates the command
+itself.
+
+```bash
+amscan uninstall
+```
+
+It shows what it will remove and asks first — `-y` skips the question, and
+`--keep-tool` stops short of deactivating the command. Your source code is
+never touched.
+
+**It refuses while code is still commented out.** `disable` keeps the original
+source in `.dart_tool/api_model_scanner/disabled_fields.json`, not in the
+commented-out file, so removing that record would leave the code unrecoverable
+and looking perfectly fine. Run `disable --undo` or `disable --remove` first;
+`--force` overrides the refusal and accepts the loss.
 
 ## Files it writes
 

@@ -13,6 +13,7 @@ import '../version.dart';
 import 'config.dart';
 import 'gui.dart';
 import 'init.dart';
+import 'uninstall.dart';
 import '../model.dart';
 import '../model_field_fixer.dart';
 import '../scanning/dead_classes.dart';
@@ -20,6 +21,7 @@ import '../scanning/model_discovery.dart';
 import '../scanning/unused_scanner.dart';
 import 'editor.dart';
 import 'prompt.dart';
+import 'style.dart';
 
 /// Version reported by `--version`. Keep in sync with pubspec.yaml.
 
@@ -73,6 +75,7 @@ class ApiModelScannerRunner extends CommandRunner<int> {
     addCommand(RemoveCommand());
     addCommand(DisableCommand());
     addCommand(ClearCommand());
+    addCommand(UninstallCommand());
   }
 
   @override
@@ -108,6 +111,9 @@ abstract class _ModelCommand extends Command<int> {
   bool get acceptAll => argResults!['accept-all'] as bool;
 
   String get projectRoot => Directory.current.absolute.path;
+
+  static String? get _home =>
+      Platform.environment['HOME'] ?? Platform.environment['USERPROFILE'];
 
   String? _models;
 
@@ -145,14 +151,17 @@ abstract class _ModelCommand extends Command<int> {
 
   void printHeader(String title) {
     say('');
-    say(title);
-    say('=' * title.length);
+    say(bold(headingLine(title)));
     say('');
-    say('Project: $projectRoot');
+    say(labelled(
+      'Project',
+      '${accent(p.basename(projectRoot))}  '
+          '${dim(homePath(projectRoot, home: _home))}',
+    ));
     // Absent on the paths that work from the disabled record rather than by
     // scanning, where naming a models directory would only mislead.
     if (_models != null) {
-      say('Models:  ${p.relative(modelsPath, from: projectRoot)}');
+      say(labelled('Models', shortPath(modelsPath, projectRoot)));
     }
     say('');
   }
@@ -162,18 +171,20 @@ abstract class _ModelCommand extends Command<int> {
     final discovered = await findModels(modelsPath: modelsPath);
     final fields = discovered.fields;
 
-    say('Found ${fields.length} model fields '
-        'in ${discovered.classes.length} classes.');
+    final classCount = discovered.classes.length;
+    say('  ${dim('Found')}  ${fields.length} model '
+        'field${fields.length == 1 ? '' : 's'} in $classCount '
+        'class${classCount == 1 ? '' : 'es'}');
 
     // Worth saying out loud: a class without `fromJson`/`toJson` is not one
     // this tool can reason about, and silently ignoring it would read as
     // "nothing unused here".
     if (discovered.skipped.isNotEmpty) {
       final names = discovered.skipped.take(3).join(', ');
-      say('Skipped ${discovered.skipped.length} '
+      say('  ${dim('Skipped')}  ${discovered.skipped.length} '
           'class${discovered.skipped.length == 1 ? '' : 'es'} with no '
-          '`fromJson`/`toJson` ($names'
-          '${discovered.skipped.length > 3 ? ', …' : ''}).');
+          '`fromJson`/`toJson` ${dim('($names'
+          '${discovered.skipped.length > 3 ? ', …' : ''})')}');
     }
 
     final sink = stdout;
@@ -228,9 +239,9 @@ abstract class _ModelCommand extends Command<int> {
     );
 
     if (deadClasses.isNotEmpty) {
-      say('${deadClasses.length} class${deadClasses.length == 1 ? '' : 'es'} '
-          'dead outright: '
-          '${deadClasses.keys.map((k) => k.split('|').last).join(', ')}');
+      say('  ${dim('Dead')}  ${deadClasses.length} '
+          'class${deadClasses.length == 1 ? '' : 'es'} dead outright '
+          '${dim('(${deadClasses.keys.map((k) => k.split('|').last).join(', ')})')}');
     }
 
     final result = UnusedCache(
@@ -337,7 +348,7 @@ class ScanCommand extends _ModelCommand {
     // An empty record is a finished run, not results worth keeping — there is
     // nothing to show, so asking whether to rescan wastes the question.
     if (existing != null && existing.fields.isNotEmpty) {
-      say('Cached results found — scanned ${existing.age}, '
+      say('  Cached results found — scanned ${existing.age}, '
           '${existing.fields.length} potentially unused.');
       say('');
 
@@ -353,12 +364,12 @@ class ScanCommand extends _ModelCommand {
                   0);
 
       if (!rescan) {
-        say('Keeping the existing report:');
+        say('  Keeping the existing report:');
         say('  ${cache.reportPath}');
         say('');
         // Declining a rescan still means "show me the results".
         if (shouldOpen && openInEditor(cache.reportPath) == null) {
-          say('Could not open an editor automatically — open the path above.');
+          say('  Could not open an editor automatically — open the path above.');
           say('');
         }
         return 0;
@@ -368,26 +379,31 @@ class ScanCommand extends _ModelCommand {
     final result = await scanAndCache();
 
     if (result.fields.isEmpty) {
-      say('No unused model fields found.');
+      say('  No unused model fields found.');
       say('');
       return 0;
     }
 
     final classes = result.fields.map((f) => f.className).toSet().length;
-    say('${result.fields.length} potentially unused '
-        'field${result.fields.length == 1 ? '' : 's'} '
-        'across $classes class${classes == 1 ? '' : 'es'}.');
     say('');
-    say('Report written to:');
-    say('  ${cache.reportPath}');
+    say('  ${result.fields.isEmpty ? good('✓') : warnish('!')}  '
+        '${bold('${result.fields.length} potentially unused '
+            'field${result.fields.length == 1 ? '' : 's'}')} '
+        'across $classes class${classes == 1 ? '' : 'es'}');
+    say('');
+    say(bold(headingLine('Report')));
+    say('');
+    say('  ${accent(shortPath(cache.reportPath, projectRoot))}');
     say('');
 
     if (shouldOpen && openInEditor(cache.reportPath) == null) {
-      say('Could not open an editor automatically — open the path above.');
+      say(dim('  Could not open an editor automatically — '
+          'open the path above.'));
       say('');
     }
 
-    say('Tick what you want, then run `amscan remove` or `amscan disable`.');
+    say('  ${dim('Next')}  Tick what you want, then run '
+        '${accent('amscan remove')} or ${accent('amscan disable')}.');
     say('');
 
     return 0;
@@ -453,7 +469,7 @@ abstract class _MutatingCommand extends _ModelCommand {
       result = await scanAndCache();
     } else if (force) {
       // --force permits a dirty tree, so the cache may be out of date.
-      say('Cached results found — scanned ${result.age}, '
+      say('  Cached results found — scanned ${result.age}, '
           '${result.fields.length} potentially unused.');
       say('');
       final rescan = acceptAll ||
@@ -469,14 +485,14 @@ abstract class _MutatingCommand extends _ModelCommand {
     }
 
     if (result.fields.isEmpty) {
-      say('No unused model fields recorded. Nothing to do.');
+      say('  No unused model fields recorded. Nothing to do.');
       say('');
       return 0;
     }
 
     final selection = _resolveSelection(result);
     if (selection == null) {
-      say('Nothing selected. Exiting without changes.');
+      say('  Nothing selected. Exiting without changes.');
       say('');
       return 0;
     }
@@ -507,7 +523,7 @@ abstract class _MutatingCommand extends _ModelCommand {
 
     if (summary.skipped.isNotEmpty) {
       say('');
-      say('Skipped ${summary.skipped.length}: ${summary.skipped.join(', ')}');
+      say('  Skipped ${summary.skipped.length}: ${summary.skipped.join(', ')}');
     }
 
     if (summary.modifiedFiles.isNotEmpty) {
@@ -545,14 +561,14 @@ abstract class _MutatingCommand extends _ModelCommand {
 
       if (summary.disabled.isNotEmpty) {
         DisabledStore(projectRoot).add(summary.disabled);
-        say('Recorded in ${DisabledStore(projectRoot).reportPath}');
-        say('Undo with `amscan disable --undo`, '
+        say('  Recorded in ${DisabledStore(projectRoot).reportPath}');
+        say('  Undo with `amscan disable --undo`, '
             'or delete for good with `amscan disable --remove`.');
       }
 
       tidyRecords(cache, DisabledStore(projectRoot));
 
-      say('Review with `git diff`.');
+      say('  Review with `git diff`.');
     }
 
     say('');
@@ -570,14 +586,14 @@ abstract class _MutatingCommand extends _ModelCommand {
 
     final selection = cache.readSelection();
     if (selection.isNotEmpty) {
-      say('Using ${selection.markedCount} selection'
+      say('  Using ${selection.markedCount} selection'
           '${selection.markedCount == 1 ? '' : 's'} from the report.');
       say('');
       return selection;
     }
 
     final count = result.fields.length;
-    say('Nothing is ticked in the report:');
+    say('  Nothing is ticked in the report:');
     say('  ${cache.reportPath}');
     say('');
 
@@ -678,13 +694,13 @@ class DisableCommand extends _MutatingCommand {
 
     final selection = store.readSelection();
     if (selection.isNotEmpty) {
-      say('Using ${selection.markedCount} selection'
+      say('  Using ${selection.markedCount} selection'
           '${selection.markedCount == 1 ? '' : 's'} from the record.');
       say('');
       return selection;
     }
 
-    say('Nothing is ticked in the record:');
+    say('  Nothing is ticked in the record:');
     say('  ${store.reportPath}');
     say('');
 
@@ -721,7 +737,7 @@ class DisableCommand extends _MutatingCommand {
     final all = store.read();
 
     if (all.isEmpty) {
-      say('Nothing is disabled.');
+      say('  Nothing is disabled.');
       say('');
       return 0;
     }
@@ -730,7 +746,7 @@ class DisableCommand extends _MutatingCommand {
     // nothing ticked we ask before touching everything.
     final selection = _selectDisabled(store, all, restore: restore);
     if (selection == null) {
-      say('Nothing selected. Exiting without changes.');
+      say('  Nothing selected. Exiting without changes.');
       say('');
       return 0;
     }
@@ -744,7 +760,7 @@ class DisableCommand extends _MutatingCommand {
         .toList();
 
     if (recorded.isEmpty) {
-      say('Nothing selected matches the record.');
+      say('  Nothing selected matches the record.');
       say('');
       return 0;
     }
@@ -878,7 +894,7 @@ class DisableCommand extends _MutatingCommand {
     }
 
     if (changed.isEmpty) {
-      say('Nothing changed.');
+      say('  Nothing changed.');
       say('');
       return 0;
     }
@@ -889,7 +905,7 @@ class DisableCommand extends _MutatingCommand {
       for (final entry in originals.entries) {
         await File(entry.key).writeAsString(entry.value);
       }
-      say('Reverted: the change did not verify with `dart analyze`.');
+      say('  Reverted: the change did not verify with `dart analyze`.');
       for (final line in (broke ?? const <String>[]).take(5)) {
         say('  $line');
       }
@@ -924,7 +940,7 @@ class DisableCommand extends _MutatingCommand {
 
       if (existing == null) {
         say('');
-        say('Restored, but there is no scan to return them to — '
+        say('  Restored, but there is no scan to return them to — '
             'run `amscan scan` to list them again.');
       } else {
         final known = {
@@ -962,7 +978,7 @@ class DisableCommand extends _MutatingCommand {
         'field${done.length == 1 ? '' : 's'} '
         'in ${changed.length} file${changed.length == 1 ? '' : 's'}.');
     if (store.isEmpty) {
-      say('Nothing is disabled any more.');
+      say('  Nothing is disabled any more.');
     }
 
     tidyRecords(cache, store);
@@ -1293,7 +1309,8 @@ class InitCommand extends Command<int> {
       projectRoot: projectRoot,
     );
 
-    _say('Saved to $written');
+    _say('  ${good('✓')} Saved to ${homePath(written)}');
+    _say('');
     _describeExisting(projectRoot).forEach(_say);
     return 0;
   }
@@ -1312,8 +1329,7 @@ class InitCommand extends Command<int> {
   /// The interactive path.
   Future<int> _wizard(String projectRoot) async {
     _say('');
-    _say('Setting up api_model_scanner');
-    _say('===========================');
+    _say(bold(headingLine('Setting up api_model_scanner')));
     _say('');
 
     final inProject = looksLikeDartProject(projectRoot);
@@ -1355,7 +1371,7 @@ class InitCommand extends Command<int> {
     );
 
     _say('');
-    _say('Saved to $written');
+    _say('  ${good('✓')} Saved to ${homePath(written)}');
     _say('');
     _say(models == null && ModelsConfig.resolve(projectRoot) == null
         ? 'Set a models directory with `amscan init --project` in a project, '
@@ -1435,7 +1451,7 @@ class InitCommand extends Command<int> {
 
     if (detected.length == 1) {
       _say('');
-      _say('Editor: ${detected.single} (Auto detected)');
+      _say(labelled('Editor', '${detected.single} ${dim('(Auto detected)')}'));
       return detected.single;
     }
 
@@ -1518,28 +1534,188 @@ class InitCommand extends Command<int> {
     }
 
     return [
-      'Current settings',
+      bold(headingLine('Current settings')),
       '',
       if (resolved != null)
-        '  Models:  ${resolved.relative}  '
-            '(${switch (resolved.source) {
-          ModelsSource.project => 'this project',
-          ModelsSource.global => 'every project',
-          ModelsSource.flag => 'this run',
-        }})'
+        labelled(
+          'Models',
+          '${accent(resolved.relative)}  ${dim('(${switch (resolved.source) {
+            ModelsSource.project => 'this project',
+            ModelsSource.global => 'every project',
+            ModelsSource.flag => 'this run',
+          }})')}',
+          width: 14,
+        )
       else
-        '  Models:  not set',
-      '  Editor:  ${editor ?? 'not set'}',
-      '  Report editor: ${switch (gui) {
-        true => 'wanted',
-        false => 'declined',
-        null => 'not answered',
-      }}',
+        labelled('Models', dim('not set'), width: 14),
+      labelled('Editor', editor == null ? dim('not set') : accent(editor),
+          width: 14),
+      labelled(
+        'Report editor',
+        switch (gui) {
+          true => good('wanted'),
+          false => dim('declined'),
+          null => dim('not answered'),
+        },
+        width: 14,
+      ),
       '',
-      '  ${ModelsConfig.globalPath()}',
+      '  ${dim(homePath(ModelsConfig.globalPath()))}',
       if (ModelsConfig.readProject(projectRoot) != null)
-        '  ${ModelsConfig.projectPath(projectRoot)}',
+        '  ${dim(shortPath(ModelsConfig.projectPath(projectRoot), projectRoot))}',
     ];
+  }
+}
+
+/// `amscan uninstall`
+///
+/// The opposite of `init`: takes the editor extension, the settings and the
+/// tool itself back off the machine.
+class UninstallCommand extends Command<int> {
+  UninstallCommand() {
+    argParser
+      ..addFlag(
+        'yes',
+        abbr: 'y',
+        negatable: false,
+        help: 'Do not ask for confirmation.',
+      )
+      ..addFlag(
+        'force',
+        negatable: false,
+        help: 'Go ahead even when code is still commented out. That code '
+            'can no longer be restored afterwards.',
+      )
+      ..addFlag(
+        'keep-tool',
+        negatable: false,
+        help: 'Remove the editor and the settings, but leave the command '
+            'installed.',
+      );
+  }
+
+  @override
+  String get name => 'uninstall';
+
+  @override
+  String get description =>
+      'Remove the editor, every setting, and the tool itself.';
+
+  void _say(String message) => stdout.writeln(message);
+
+  @override
+  Future<int> run() async {
+    final projectRoot = Directory.current.absolute.path;
+    final plan = planUninstall(projectRoot: projectRoot);
+    final keepTool = argResults!['keep-tool'] as bool;
+    final editor = resolvedEditor();
+    final hasExtension = guiInstalled(editor: editor);
+
+    _say('');
+    _say(bold(headingLine('Uninstall')));
+    _say('');
+
+    // The one way this is not reversible. `disable` keeps the original source
+    // in the record, not in the commented-out file, so deleting the record
+    // strands that code — and the commented code looks fine until somebody
+    // tries to undo it.
+    if (plan.wouldStrandDisabledCode && !(argResults!['force'] as bool)) {
+      _say('  ${bad('${plan.disabledFieldCount} field'
+          '${plan.disabledFieldCount == 1 ? '' : 's'} '
+          'in this project '
+          '${plan.disabledFieldCount == 1 ? 'is' : 'are'} still commented '
+          'out.')}');
+      _say('');
+      _say('  Uninstalling deletes the record that holds their original '
+          'source,');
+      _say('  so `disable --undo` could never put them back.');
+      _say('');
+      _say('  ${dim('First')}  ${accent('amscan disable --undo')}   '
+          '${dim('put them back')}');
+      _say('  ${dim('   or')}  ${accent('amscan disable --remove')} '
+          '${dim('delete them for good')}');
+      _say('');
+      _say('  ${dim('Or pass --force to uninstall anyway.')}');
+      _say('');
+      return 78;
+    }
+
+    final lines = <String>[
+      if (hasExtension) '$extensionId ${dim('($editor)')}',
+      if (plan.projectDirectory != null)
+        '${shortPath(plan.projectDirectory!, projectRoot)} '
+            '${dim('settings and cached reports')}',
+      if (plan.globalConfigDirectory != null)
+        '${homePath(plan.globalConfigDirectory!)} ${dim('settings')}',
+      if (!keepTool) 'the `amscan` command itself ${dim('(pub deactivate)')}',
+    ];
+
+    if (lines.isEmpty) {
+      _say('  Nothing to remove — already clean.');
+      _say('');
+      return 0;
+    }
+
+    _say('  This will remove:');
+    _say('');
+    for (final line in lines) {
+      _say('    ${bad('-')} $line');
+    }
+    _say('');
+    _say('  ${dim('Your source code is not touched.')}');
+    _say('');
+
+    if (!(argResults!['yes'] as bool)) {
+      if (!canPrompt) {
+        _say('  Re-run with ${accent('-y')} to confirm.');
+        _say('');
+        return 78;
+      }
+      // No first, so cancelling keeps everything.
+      final choice = selectSingle('  Go ahead?', [
+        'No — keep everything',
+        'Yes — remove it all',
+      ]);
+      if (choice != 1) {
+        _say('  ${dim('Nothing was removed.')}');
+        _say('');
+        return 0;
+      }
+    }
+
+    if (hasExtension) {
+      _say(uninstallGui(editor: editor)
+          ? '  ${good('✓')} Removed $extensionId'
+          : '  ${warnish('!')} Could not remove $extensionId — '
+              'try `$editor --uninstall-extension $extensionId`');
+    }
+
+    for (final directory in applyUninstall(plan)) {
+      _say('  ${good('✓')} Removed ${homePath(shortPath(directory, projectRoot))}');
+    }
+
+    if (keepTool) {
+      _say('');
+      _say('  ${dim('The command is still installed.')}');
+      _say('');
+      return 0;
+    }
+
+    // Last: this removes the snapshot currently running.
+    final deactivated = deactivateSelf();
+    _say(deactivated.ok
+        ? '  ${good('✓')} Deactivated api_model_scanner'
+        : '  ${warnish('!')} Could not deactivate it '
+            '${dim('(not globally activated?)')}');
+    if (!deactivated.ok && deactivated.detail.isNotEmpty) {
+      _say('    ${dim(deactivated.detail.split('\n').first)}');
+    }
+
+    _say('');
+    _say('  ${dim('Gone. Reinstall with `dart pub global activate` '
+        'and `amscan init`.')}');
+    _say('');
+    return 0;
   }
 }
 
