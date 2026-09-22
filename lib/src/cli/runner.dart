@@ -1119,24 +1119,29 @@ bool installInto(EditorTarget target, void Function(String) say) {
   }
 }
 
-/// Deals with the restart a freshly copied plugin needs.
+/// Deals with the restart a changed plugin needs.
 ///
-/// The IDE reads its plugins directory only at startup, so a copy made under
-/// a running one is invisible until it goes round again. Offered rather than
-/// done, because quitting somebody's IDE is not a side effect of installing
-/// an editor — and never offered when there is nobody there to answer.
+/// The IDE reads its plugins directory only at startup, so anything written
+/// there under a running one — a plugin arriving or leaving — is invisible
+/// until it goes round again. Offered rather than done, because quitting
+/// somebody's IDE is not a side effect of managing an editor, and never
+/// offered when there is nobody there to answer.
 void _settleRestart(
   JetBrainsIde ide,
   bool running,
-  void Function(String) say,
-) {
+  void Function(String) say, {
+  /// What the restart achieves, as the tail of a sentence.
+  String reason = 'to use the editor',
+  /// What has already happened without one.
+  String idle = 'it will be there next time you open it',
+}) {
   if (!running) {
-    say('      ${dim('it will be there next time you open it')}');
+    say('      ${dim(idle)}');
     return;
   }
 
   if (!canPrompt) {
-    say('      ${dim('restart it to use the editor')}');
+    say('      ${dim('restart it $reason')}');
     return;
   }
 
@@ -1148,7 +1153,8 @@ void _settleRestart(
   ]);
 
   if (choice != 1) {
-    say('  ${dim('Restart it when you are ready; the editor appears then.')}');
+    say('  ${dim('Restart it when you are ready — that is when it takes '
+        'effect.')}');
     return;
   }
 
@@ -1182,9 +1188,16 @@ bool removeFrom(EditorTarget target, void Function(String) say) {
       return false;
 
     case AndroidStudioTarget(:final ide):
+      final running = ide.isRunning;
       if (removeIntellijPlugin(ide)) {
         say('  ${good('✓')} ${ide.name}');
-        say('      ${dim('restart it to finish')}');
+        _settleRestart(
+          ide,
+          running,
+          say,
+          reason: 'to finish removing it',
+          idle: 'it is gone the next time you open it',
+        );
         return true;
       }
       say('  ${dim('·')} ${ide.name}');
@@ -1937,8 +1950,16 @@ class UninstallCommand extends Command<int> {
     }
 
     for (final ide in withPlugin) {
+      final running = ide.isRunning;
       if (removeIntellijPlugin(ide)) {
         _say('  ${good('✓')} Removed $intellijPluginName from ${ide.name}');
+        _settleRestart(
+          ide,
+          running,
+          _say,
+          reason: 'to finish removing it',
+          idle: 'it is gone the next time you open it',
+        );
       }
     }
 
