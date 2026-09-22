@@ -215,3 +215,53 @@ String? _packageRoot() {
     return null;
   }
 }
+
+/// Where Android Studio's own launcher lives, or null when it cannot be found.
+///
+/// Its `--help` documents `[--line <line>] [--column <column>] file`, so it
+/// can open the report and land on a line — but it is not on PATH by default,
+/// which is why the application bundle is checked too.
+String? androidStudioLauncher() {
+  final onPath = _which('studio');
+  if (onPath != null) {
+    return onPath;
+  }
+
+  const candidates = [
+    '/Applications/Android Studio.app/Contents/MacOS/studio',
+    '/Applications/Android Studio Preview.app/Contents/MacOS/studio',
+  ];
+  for (final candidate in candidates) {
+    if (File(candidate).existsSync()) {
+      return candidate;
+    }
+  }
+
+  final home = Platform.environment['HOME'];
+  if (home != null) {
+    final local = p.join(
+      home, 'Applications', 'Android Studio.app', 'Contents', 'MacOS', 'studio',
+    );
+    if (File(local).existsSync()) {
+      return local;
+    }
+  }
+
+  return null;
+}
+
+String? _which(String executable) {
+  try {
+    final result = Process.runSync(
+      Platform.isWindows ? 'where' : 'which',
+      [executable],
+    );
+    if (result.exitCode != 0) {
+      return null;
+    }
+    final first = '${result.stdout}'.split('\n').first.trim();
+    return first.isEmpty ? null : first;
+  } catch (_) {
+    return null;
+  }
+}

@@ -73,43 +73,37 @@ class ReportEditor(
     }
 
     browser?.let { view ->
-      // The bridge is injected under the name the markup calls, so the same
-      // script works here and in VS Code, where it is `postMessage`.
-      view.jbCefClient.addLoadHandler(
-        object : org.cef.handler.CefLoadHandlerAdapter() {
-          override fun onLoadEnd(
-            cefBrowser: org.cef.browser.CefBrowser?,
-            frame: org.cef.browser.CefFrame?,
-            httpStatusCode: Int,
-          ) {
-            val call = bridge!!.inject("message")
-            cefBrowser?.executeJavaScript(
-              "window.__amscanSend = function (message) { $call };",
-              cefBrowser.url,
-              0,
-            )
-            push()
-          }
-        },
-        view.cefBrowser,
+      // Everything the page needs is in the page: the report it should draw
+      // and the call that reaches back here. Nothing is injected after load,
+      // because an injection that does not land leaves a blank tab with no
+      // error anywhere — which is exactly what happened.
+      view.loadHTML(
+        renderHtml(
+          theme = ReportTheme.current(),
+          initialJson = currentJson(),
+          bridge = bridge!!.inject("message"),
+        ),
       )
-
-      view.loadHTML(renderHtml(ReportTheme.current()))
     }
 
     document?.addDocumentListener(documentListener, this)
   }
 
+  private fun currentJson(): String {
+    val text = document?.text
+      ?: runCatching { file.inputStream.bufferedReader().readText() }.getOrNull()
+      ?: return "{\"classes\":[]}"
+    return parseReport(text).toJson()
+  }
+
   /** Sends the current document to the table. */
   private fun push() {
     val view = browser ?: return
-    val text = document?.text ?: return
-    val json = parseReport(text).toJson()
 
     ApplicationManager.getApplication().invokeLater {
       view.cefBrowser.executeJavaScript(
-        "window.__amscanUpdate && window.__amscanUpdate(${jsonString(json)});",
-        view.cefBrowser.url,
+        "window.__amscanUpdate && window.__amscanUpdate(${jsonString(currentJson())});",
+        view.cefBrowser.url ?: "",
         0,
       )
     }

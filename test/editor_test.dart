@@ -1,4 +1,5 @@
 import 'package:api_model_scanner/src/cli/editor.dart';
+import 'package:api_model_scanner/src/cli/targets.dart';
 import 'package:api_model_scanner/src/cli/gui.dart';
 import 'package:test/test.dart';
 
@@ -64,6 +65,57 @@ void main() {
       // Still a choice worth making: the setting can be recorded now and the
       // editor installed later, and `gui install` says so if it cannot run.
       expect(editorChoices(const []), knownEditors);
+    });
+  });
+
+  group('opening from an IDE terminal', () {
+    test('a JetBrains terminal opens in Android Studio, not VS Code', () {
+      final tried = editorCandidates(
+        '/tmp/report.md',
+        editor: 'code',
+        environment: const {},
+        host: HostIde.jetBrains,
+        locateStudio: () =>
+            '/Applications/Android Studio.app/Contents/MacOS/studio',
+      );
+
+      expect(tried.first,
+          ['/Applications/Android Studio.app/Contents/MacOS/studio', '/tmp/report.md']);
+    });
+
+    test('no --reuse-window for it, which it does not understand', () {
+      final first = editorCandidates(
+        '/tmp/report.md',
+        environment: const {},
+        host: HostIde.jetBrains,
+        locateStudio: () => '/bin/studio',
+      ).first;
+
+      expect(first, isNot(contains('--reuse-window')));
+    });
+
+    test('falls back to the configured editor when it cannot be found', () {
+      final tried = editorCandidates(
+        '/tmp/report.md',
+        editor: 'code',
+        environment: const {},
+        host: HostIde.jetBrains,
+        locateStudio: () => null,
+      );
+
+      expect(tried.first, ['code', '--reuse-window', '/tmp/report.md']);
+    });
+
+    test('a VS Code terminal is unaffected', () {
+      final tried = editorCandidates(
+        '/tmp/report.md',
+        editor: 'code',
+        environment: const {},
+        host: HostIde.vsCode,
+        locateStudio: () => '/bin/studio',
+      );
+
+      expect(tried.first, ['code', '--reuse-window', '/tmp/report.md']);
     });
   });
 }

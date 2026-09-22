@@ -27,7 +27,13 @@ data class Theme(
  * deliberate port of `editors/vscode/src/webview.ts`: same columns, same
  * spans, same filter, so the two editors look and behave alike.
  */
-fun renderHtml(theme: Theme): String = """<!DOCTYPE html>
+fun renderHtml(
+  theme: Theme,
+  /** The report, already serialised, baked into the page. */
+  initialJson: String = "{\"classes\":[]}",
+  /** JavaScript that sends one message to the IDE, using `message`. */
+  bridge: String = "",
+): String = """<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -112,9 +118,14 @@ fun renderHtml(theme: Theme): String = """<!DOCTYPE html>
   const filterBox = document.getElementById('filter');
   let report = { classes: [] };
 
-  // Replaced at load time by the bridge into the IDE. In VS Code this is
-  // `acquireVsCodeApi().postMessage`; the shape of the messages is identical.
-  const send = (message) => window.__amscanSend(JSON.stringify(message));
+  // The bridge into the IDE, written into the page rather than injected
+  // after load: a first paint that depends on a later injection is a first
+  // paint that can silently not happen. In VS Code this same call is
+  // `acquireVsCodeApi().postMessage`.
+  const send = function (payload) {
+    const message = JSON.stringify(payload);
+    ${bridge}
+  };
 
   function el(tag, className, text) {
     const node = document.createElement(tag);
@@ -287,6 +298,11 @@ fun renderHtml(theme: Theme): String = """<!DOCTYPE html>
     report = JSON.parse(json);
     render();
   };
+
+  // The report is in the page already, so the table is drawn before any
+  // call from the IDE arrives — and still drawn if none ever does.
+  report = ${initialJson};
+  render();
 }());
 </script>
 </body>

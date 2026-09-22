@@ -1,6 +1,8 @@
 import 'dart:io';
 
 import 'gui.dart';
+import 'jetbrains.dart';
+import 'targets.dart';
 
 /// Opens [path] in the user's editor.
 ///
@@ -40,11 +42,22 @@ List<List<String>> editorCandidates(
   String path, {
   String? editor,
   Map<String, String>? environment,
+  HostIde? host,
+  String? Function()? locateStudio,
 }) {
   final chosen = editor ?? resolvedEditor();
   final env = environment ?? Platform.environment;
+  final inIde = host ?? currentHostIde();
+  final studioAt = inIde == HostIde.jetBrains
+      ? (locateStudio ?? androidStudioLauncher)()
+      : null;
 
   return <List<String>>[
+    // The terminal you ran from decides where the report opens: running in
+    // Android Studio and having it appear in VS Code is nobody's intent.
+    // It takes the file as a bare argument — `--reuse-window` is a VS Code
+    // flag it does not understand.
+    if (studioAt != null) [studioAt, path],
     [chosen, '--reuse-window', path],
     if (env['EDITOR'] case final fallback? when fallback.trim().isNotEmpty)
       [fallback.trim(), path],
