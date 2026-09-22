@@ -1,0 +1,20 @@
+<idea-plugin>
+  <id>com.jtycedgetech.amscan-report</id>
+  <name>amscan Report</name>
+  <vendor>JtycEdgeTech</vendor>
+
+  <description><![CDATA[
+    Shows an <code>api_model_scanner</code> report as a table of checkboxes
+    instead of a Markdown list, and jumps to the source a row names.
+    Every toggle is an ordinary edit to the same Markdown file the CLI reads,
+    so nothing depends on this plugin being installed.
+  ]]></description>
+
+  <!-- Core platform only: no Java, Android or Markdown APIs, so this loads in
+       Android Studio, IDEA and every other IntelliJ-platform IDE. -->
+  <depends>com.intellij.modules.platform</depends>
+
+  <extensions defaultExtensionNs="com.intellij">
+    <fileEditorProvider implementation="com.jtycedgetech.amscan.ReportEditorProvider"/>
+  </extensions>
+</idea-plugin>
