@@ -1337,6 +1337,15 @@ class InitCommand extends Command<int> {
       }
     }
 
+    // A project run with nothing to say writes nothing, so there is no file
+    // to point at.
+    if (_forProject && models == null) {
+      _say('');
+      _say('Nothing changed.');
+      _say('');
+      return 0;
+    }
+
     final written = applyInit(
       InitAnswers(
         models: models,
@@ -1491,12 +1500,15 @@ class InitCommand extends Command<int> {
         'checkbox cells, instead of a Markdown list.');
     _say('');
 
+    // No comes first so it is what `selectSingle` returns on q or Ctrl-C.
+    // Silence is a decline: an editor extension should never arrive
+    // uninvited.
     final choice = selectSingle('  Install it?', [
-      'Yes — install it now',
       'No — the Markdown report is fine',
+      'Yes — install it now',
     ]);
 
-    if (choice != 0) {
+    if (choice != 1) {
       _say('Skipped. Run `amscan gui install` if you change your mind.');
       return false;
     }
