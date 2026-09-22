@@ -275,41 +275,65 @@ extension JetBrainsIdeRunning on JetBrainsIde {
   bool get isRunning => Platform.isMacOS && _androidStudioRunning();
 }
 
-/// Quits Android Studio and starts it again, so a freshly copied plugin is
-/// picked up.
+/// Quits Android Studio and starts it again, so a changed plugin is picked up.
 ///
 /// A JetBrains IDE reads its plugins directory only at startup, and there is
 /// no supported way to ask a running one to load a plugin from a local file —
 /// so the restart is the mechanism, not a workaround for one.
 ///
-/// Handed to a detached script rather than done here, because this is
-/// routinely run *from the IDE's own terminal*: quitting the IDE kills that
-/// terminal, and with it this process, before it could reopen anything. The
-/// script outlives us, so the reopen happens either way.
+/// Handed to a detached script, because this is routinely run *from the IDE's
+/// own terminal*: quitting the IDE closes that terminal, and this process with
+/// it, long before it could reopen anything.
 ///
-/// The script is a file rather than `sh -c`, so its own command line does not
-/// contain the name it waits on — it would otherwise match itself and wait
-/// for ever.
+/// Detaching is not enough on its own. Closing the terminal hangs up its whole
+/// process group, and macOS has no `setsid` to escape it, so the script
+/// ignores the signals that would otherwise take it down with the terminal
+/// that started it. Without that it quits the IDE and dies before reopening
+/// it — which is exactly what it did.
+///
+/// The script is a file rather than `sh -c` so its own command line does not
+/// contain the name it polls for; inline, `pgrep -f` matched the waiting
+/// script itself and waited for ever.
 ({bool ok, String detail}) restartAndroidStudio() {
   if (!Platform.isMacOS) {
     return (ok: false, detail: 'Restarting from here only works on macOS.');
   }
 
+  final log = p.join(Directory.systemTemp.path, 'amscan_restart.log');
+
   // The quit is the graceful one the menu uses, so the IDE saves and restores
-  // its open projects. It gets a bounded wait and is then reopened
-  // regardless: a dialog holding the quit is the user's to resolve, and
-  // reopening an IDE that never left is harmless.
-  const script = r"""
+  // its open projects. It gets a bounded wait and is reopened regardless: a
+  // dialog holding the quit is the user's to resolve, and reopening an IDE
+  // that never left does nothing.
+  final script = r"""
 #!/bin/sh
-osascript -e 'tell application "Android Studio" to quit' >/dev/null 2>&1
+# Survive the terminal that started this, which the quit below is about to
+# close. Without this the script dies here and the IDE never comes back.
+trap '' HUP INT TERM
+exec >>'__LOG__' 2>&1
+
+echo "--- $(date) asking Android Studio to quit"
+osascript -e 'tell application "Android Studio" to quit'
+
 i=0
 while [ "$i" -lt 240 ]; do
   pgrep -f 'Android Studio.app' >/dev/null 2>&1 || break
   sleep 0.5
   i=$((i + 1))
 done
+
+if [ "$i" -ge 240 ]; then
+  echo "$(date) it did not quit within two minutes; reopening anyway"
+else
+  echo "$(date) gone after $i checks"
+fi
+
+# A moment for macOS to finish tearing the app down before asking for it
+# again, or the launch can be swallowed.
+sleep 1
 open -a 'Android Studio'
-""";
+echo "$(date) open exited $?"
+""".replaceAll('__LOG__', log);
 
   try {
     final file = File(
@@ -318,7 +342,7 @@ open -a 'Android Studio'
     file.writeAsStringSync(script);
     Process.runSync('chmod', ['+x', file.path]);
     Process.start('/bin/sh', [file.path], mode: ProcessStartMode.detached);
-    return (ok: true, detail: '');
+    return (ok: true, detail: log);
   } catch (e) {
     return (ok: false, detail: '$e');
   }

@@ -1165,6 +1165,11 @@ void _settleRestart(
     // terminal that is about to be closed, so it says what was started
     // rather than waiting to report what happened.
     say('  ${good('✓')} Restarting ${ide.name} — it will reopen on its own.');
+    say('      ${dim('this can take a minute if it asks about unsaved '
+        'work')}');
+    if (result.detail.isNotEmpty) {
+      say('      ${dim(result.detail)}');
+    }
     return;
   }
 
