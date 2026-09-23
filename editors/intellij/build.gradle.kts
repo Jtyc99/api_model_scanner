@@ -4,7 +4,7 @@ plugins {
 }
 
 group = "com.jtycedgetech"
-version = "0.1.0"
+version = "1.0.0"
 
 intellijPlatform {
   // This plugin contributes no Settings page, so there is nothing to index —
