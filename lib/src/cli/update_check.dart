@@ -81,9 +81,9 @@ class UpdateCheck {
     final http = client ?? HttpClient();
     http.connectionTimeout = _timeout;
     try {
-      final uri = Uri.parse(
-        'https://pub.dev/api/packages/$packageName/versions/latest',
-      );
+      // `/versions/latest` is a 400: the version is part of that path, not
+      // a word it accepts. The package endpoint carries the same answer.
+      final uri = Uri.parse('https://pub.dev/api/packages/$packageName');
       final response =
           await http.getUrl(uri).then((r) => r.close()).timeout(_timeout);
       if (response.statusCode != 200) {
@@ -92,7 +92,8 @@ class UpdateCheck {
       final body = await response.transform(utf8.decoder).join().timeout(
             _timeout,
           );
-      final version = (jsonDecode(body) as Map<String, dynamic>)['version'];
+      final latest = (jsonDecode(body) as Map<String, dynamic>)['latest'];
+      final version = latest is Map<String, dynamic> ? latest['version'] : null;
       return version is String && version.isNotEmpty ? version : null;
     } catch (_) {
       return null;
