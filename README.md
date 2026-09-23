@@ -82,7 +82,7 @@ and that a getter whose every term is gone has to go with them.
 ## Install
 
 ```bash
-dart pub global activate --source git https://github.com/JtycEdgeTech/api_model_scanner.git
+dart pub global activate --source git https://github.com/Jtyc99/api_model_scanner.git
 ```
 
 `api_model_scanner` and `amscan` are the same executable.
@@ -263,6 +263,7 @@ than a broken build.
 |---|---|
 | `init` | Set up the tool — models directory, editor, report editor |
 | `init --project` | Set the models directory for this project only |
+| `init <dir>` | Set the models directory without being asked for it |
 | `scan` | Find unused fields, write and open the report |
 | `remove` | Delete ticked code, then tidy imports and empty files |
 | `disable` | Comment out ticked code, or `--undo` / `--remove` what is commented |
@@ -289,8 +290,14 @@ than a broken build.
 | `--force` | `remove`, `disable` | Allow a dirty tree, and offer a rescan first |
 | `--undo` | `disable` | Uncomment previously disabled fields |
 | `--remove` | `disable` | Delete previously disabled fields for good |
+| `-y`, `--yes` | `uninstall` | Do not ask for confirmation |
+| `--keep-tool` | `uninstall` | Remove the editor and settings, but leave the command installed |
+| `--force` | `uninstall` | Go ahead even while code is still commented out — that code becomes unrecoverable |
 
 `gui` takes subcommands rather than flags: `install`, `uninstall`, `status`.
+
+`--help` works on the runner and on every command; `--version` prints the
+tool version and exits.
 
 `--undo` never needs `--force`: `disable` dirties the tree by construction, so
 requiring a clean one would make undo unreachable exactly when you want it.
