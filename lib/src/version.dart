@@ -2,4 +2,4 @@
 ///
 /// Keep in step with `version:` in pubspec.yaml. `dart run` could read the
 /// pubspec, but a globally activated snapshot has only this.
-const String packageVersion = '1.0.0';
+const String packageVersion = '1.0.3';

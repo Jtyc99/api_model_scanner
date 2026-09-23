@@ -1,3 +1,12 @@
+## 1.0.3
+
+`--version` reported 1.0.0 from both 1.0.1 and 1.0.2. The version is a
+constant in `lib/src/version.dart`, because a globally activated snapshot
+cannot read the pubspec it was built from — and a hand-kept copy of a fact
+drifts the moment someone forgets it. A test now reads `pubspec.yaml` and
+fails when the two disagree, so the release that forgets is the release
+that does not build.
+
 ## 1.0.2
 
 Editor prompts now name the editor rather than the command that drives it:
