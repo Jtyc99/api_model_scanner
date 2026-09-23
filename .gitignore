@@ -4,3 +4,11 @@
 
 # macOS
 .DS_Store
+
+# Build output and tool scratch from the editor plugins
+editors/intellij/.kotlin/
+editors/intellij/build/
+editors/intellij/*/build/
+editors/intellij/.gradle/
+editors/vscode/out/
+editors/vscode/node_modules/
