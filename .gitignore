@@ -12,3 +12,4 @@ editors/intellij/*/build/
 editors/intellij/.gradle/
 editors/vscode/out/
 editors/vscode/node_modules/
+editors/intellij/.intellijPlatform/
