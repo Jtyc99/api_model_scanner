@@ -25,7 +25,7 @@ class VsCodeTarget extends EditorTarget {
   VsCodeTarget(this.command);
 
   @override
-  String get label => command;
+  String get label => editorLabel(command);
 
   @override
   bool get installed => guiInstalled(editor: command);

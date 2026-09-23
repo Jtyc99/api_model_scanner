@@ -30,7 +30,7 @@ void main() {
 
       expect(
         targets.map((t) => t.label),
-        ['code', 'cursor', 'Android Studio 2025.3.4'],
+        ['VS Code (code)', 'Cursor (cursor)', 'Android Studio 2025.3.4'],
       );
     });
 
@@ -52,7 +52,7 @@ void main() {
       );
 
       expect(targets.first, isA<VsCodeTarget>());
-      expect(targets.first.label, 'code');
+      expect(targets.first.label, 'VS Code (code)');
     });
 
     test('a VS Code target names the command it drives', () {
@@ -199,8 +199,12 @@ void main() {
         host: HostIde.jetBrains,
       );
 
-      expect(targets.map((t) => t.label),
-          containsAll(['code', 'cursor', 'Android Studio 2025.3.4']));
+      expect(
+        targets.map((t) => t.label),
+        containsAll(
+          ['VS Code (code)', 'Cursor (cursor)', 'Android Studio 2025.3.4'],
+        ),
+      );
       expect(targets, hasLength(3));
     });
   });

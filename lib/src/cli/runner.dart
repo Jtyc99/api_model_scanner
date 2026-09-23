@@ -1734,7 +1734,8 @@ class InitCommand extends Command<int> {
 
     if (detected.length == 1) {
       _say('');
-      _say(labelled('Editor', '${detected.single} ${dim('(Auto detected)')}'));
+      final detail = dim('(Auto detected)');
+      _say(labelled('Editor', '${editorLabel(detected.single)} $detail'));
       return detected.single;
     }
 
@@ -1750,7 +1751,9 @@ class InitCommand extends Command<int> {
 
     final labels = [
       for (final command in options)
-        detected.contains(command) ? '$command (Auto detected)' : command,
+        detected.contains(command)
+            ? '${editorLabel(command)} (Auto detected)'
+            : editorLabel(command),
     ];
 
     final current = ModelsConfig.readEditor();

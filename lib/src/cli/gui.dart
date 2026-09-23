@@ -55,6 +55,28 @@ const List<String> knownEditors = [
   'code-insiders',
 ];
 
+/// What to call [command] when a person has to recognise it.
+///
+/// The commands are the tool's vocabulary, not the user's: someone who has
+/// only ever launched the app knows it as "VS Code", and a list offering
+/// `code` and `code-insiders` asks them to guess. The command still shows,
+/// because it is what `--editor` takes and what `gui status` prints back.
+String editorDisplayName(String command) => switch (command) {
+      'code' => 'VS Code',
+      'cursor' => 'Cursor',
+      'windsurf' => 'Windsurf',
+      'code-insiders' => 'VS Code Insiders',
+      _ => command,
+    };
+
+/// [command] as a list should show it: the product name, then the command.
+///
+/// An unrecognised command is left alone rather than printed twice.
+String editorLabel(String command) {
+  final name = editorDisplayName(command);
+  return name == command ? command : '$name ($command)';
+}
+
 /// The editors from [knownEditors] present on this machine.
 ///
 /// [isAvailable] exists so the ordering can be tested without depending on

@@ -51,11 +51,26 @@ class ReportEditor(
   private val bridge: JBCefJSQuery? =
     browser?.let { JBCefJSQuery.create(it as JBCefBrowserBase) }
 
-  /** Shown only when the IDE has no embedded browser to draw into. */
+  /**
+   * Shown only when the IDE has no embedded browser to draw into.
+   *
+   * Says how to get one back, because "no embedded browser" is a dead end to
+   * anyone who did not know the table was drawn in one. JCEF is missing for
+   * one of two reasons — it is switched off, or the IDE boots on a runtime
+   * built without it — and the fix differs, so both are named rather than
+   * guessed at.
+   */
   private val unavailable = JLabel(
     "<html><p style='padding:16px'>This IDE has no embedded browser, so the " +
       "table cannot be drawn.<br>The report is ordinary Markdown — use the " +
-      "Markdown tab beside this one.</p></html>",
+      "Markdown tab beside this one: the checkboxes work there, and the CLI " +
+      "reads the same file either way." +
+      "<br><br>To draw the table here, turn on " +
+      "<code>ide.browser.jcef.enabled</code> in Help &rarr; Find Action " +
+      "&rarr; Registry, then restart. If it is already on, this IDE is " +
+      "running on a Java runtime built without JCEF — Help &rarr; Find " +
+      "Action &rarr; Choose Boot Java Runtime for the IDE, and pick a " +
+      "JetBrains Runtime.</p></html>",
     SwingConstants.LEFT,
   )
 

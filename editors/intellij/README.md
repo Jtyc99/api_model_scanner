@@ -53,7 +53,7 @@ unattended run installs and says nothing further.
 To do it by hand:
 
 ```bash
-unzip -q build/distributions/amscan-report-intellij-1.0.0.zip \
+unzip -q build/distributions/amscan-report-intellij-1.0.1.zip \
   -d "$HOME/Library/Application Support/Google/AndroidStudio<version>/plugins"
 ```
 

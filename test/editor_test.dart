@@ -4,6 +4,25 @@ import 'package:api_model_scanner/src/cli/gui.dart';
 import 'package:test/test.dart';
 
 void main() {
+  group('naming an editor', () {
+    test('every known command has a name someone would recognise', () {
+      for (final command in knownEditors) {
+        expect(editorDisplayName(command), isNot(command),
+            reason: '$command is offered in a list but never translated');
+      }
+    });
+
+    test('a label carries the name and the command it stands for', () {
+      expect(editorLabel('code'), 'VS Code (code)');
+      expect(editorLabel('code-insiders'), 'VS Code Insiders (code-insiders)');
+    });
+
+    test('an unrecognised command is left alone, not printed twice', () {
+      expect(editorDisplayName('vscodium'), 'vscodium');
+      expect(editorLabel('vscodium'), 'vscodium');
+    });
+  });
+
   group('choosing an editor', () {
     test('reports only the ones installed, in preference order', () {
       final found = detectEditors(

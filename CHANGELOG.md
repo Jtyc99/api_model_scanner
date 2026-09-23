@@ -1,3 +1,16 @@
+## 1.0.2
+
+Editor prompts now name the editor rather than the command that drives it:
+`VS Code (code)` instead of a bare `code`. The commands are this tool's
+vocabulary, not yours — someone who has only ever launched the app has no
+reason to know which of `code` and `code-insiders` is theirs. The command
+stays in brackets, because it is what `--editor` takes.
+
+The IntelliJ plugin tells you what to do when the IDE has no embedded
+browser to draw the table in, instead of only that it has none. JCEF is
+either switched off or absent from the runtime the IDE booted on, and the
+two are fixed differently, so it names both.
+
 ## 1.0.1
 
 Rebuilds the VS Code extension bundled in this package. It carries its own
