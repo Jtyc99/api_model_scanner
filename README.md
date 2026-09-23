@@ -82,10 +82,16 @@ and that a getter whose every term is gone has to go with them.
 ## Install
 
 ```bash
-dart pub global activate --source git https://github.com/Jtyc99/api_model_scanner.git
+dart pub global activate api_model_scanner
 ```
 
 `api_model_scanner` and `amscan` are the same executable.
+
+To track unreleased changes, install from the repository instead:
+
+```bash
+dart pub global activate --source git https://github.com/Jtyc99/api_model_scanner.git
+```
 
 ### The optional editor
 
