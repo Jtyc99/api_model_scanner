@@ -93,6 +93,32 @@ To track unreleased changes, install from the repository instead:
 dart pub global activate --source git https://github.com/Jtyc99/api_model_scanner.git
 ```
 
+## Updating
+
+```bash
+dart pub global activate api_model_scanner
+```
+
+The same command as installing. There is no `pub global upgrade` for a
+single package — re-activating *is* the update, and it replaces whatever
+version was there.
+
+`scan` checks pub.dev at most once a day and prints one line when a newer
+release exists. It never blocks: it gives up after two seconds, says nothing
+when offline, and `-a` skips it so an unattended run never reaches for the
+network. Set `AMSCAN_NO_UPDATE_CHECK` to anything to turn it off for good.
+
+**The editors update separately.** Updating the command does not touch an
+extension or plugin already installed — those come from their marketplaces,
+or from `amscan gui install` if you want the copy bundled with this package.
+
+| What | How it updates |
+|---|---|
+| The `amscan` command | `dart pub global activate api_model_scanner` |
+| VS Code extension | VS Code, from the Marketplace |
+| Android Studio plugin | The IDE, from JetBrains Marketplace |
+| Either, from the bundle | `amscan gui install` |
+
 ### The optional editor
 
 `init` offers to install it and remembers the answer. You can also manage it

@@ -15,6 +15,7 @@ import 'gui.dart';
 import 'init.dart';
 import 'jetbrains.dart';
 import 'targets.dart';
+import 'update_check.dart';
 import 'uninstall.dart';
 import '../model.dart';
 import '../model_field_fixer.dart';
@@ -339,6 +340,43 @@ class ScanCommand extends _ModelCommand {
 
   @override
   Future<int> run() async {
+    final code = await _scan();
+    await _announceUpdate();
+    return code;
+  }
+
+  /// One line, after the scan, when a newer release exists.
+  ///
+  /// Placed here rather than in the runner because a scan is the one command
+  /// someone runs repeatedly — and the only one where a pause for the network
+  /// is already indistinguishable from the work. `-a` skips it: an unattended
+  /// run has nobody to tell, and CI should not reach for the network on a
+  /// tool's behalf.
+  Future<void> _announceUpdate() async {
+    if (acceptAll) {
+      return;
+    }
+
+    String? latest;
+    if (UpdateCheck.isDue()) {
+      latest = await UpdateCheck.fetchLatest();
+      if (latest != null) {
+        UpdateCheck.remember(latest);
+      }
+    } else {
+      latest = UpdateCheck.lastKnown();
+    }
+
+    if (latest == null || !isNewerVersion(latest, packageVersion)) {
+      return;
+    }
+
+    say('  ${dim('Update')}  $packageVersion → ${accent(latest)}  '
+        '${dim('run')} ${accent('dart pub global activate $packageName')}');
+    say('');
+  }
+
+  Future<int> _scan() async {
     final shouldOpen = argResults!['open'] as bool;
 
     await resolveModels();
@@ -1751,9 +1789,7 @@ class InitCommand extends Command<int> {
 
     final labels = [
       for (final command in options)
-        detected.contains(command)
-            ? '${editorLabel(command)} (Auto detected)'
-            : editorLabel(command),
+        editorOptionLabel(command, detected: detected.contains(command)),
     ];
 
     final current = ModelsConfig.readEditor();

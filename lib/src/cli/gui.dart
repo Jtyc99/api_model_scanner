@@ -55,6 +55,13 @@ const List<String> knownEditors = [
   'code-insiders',
 ];
 
+/// The editor most people answering this question are using.
+///
+/// Stated as a fact rather than taken as "whichever is listed first": the
+/// list is ordered by install preference, and that order could change
+/// without changing which editor most people have.
+const String mostCommonEditor = 'code';
+
 /// What to call [command] when a person has to recognise it.
 ///
 /// The commands are the tool's vocabulary, not the user's: someone who has
@@ -75,6 +82,20 @@ String editorDisplayName(String command) => switch (command) {
 String editorLabel(String command) {
   final name = editorDisplayName(command);
   return name == command ? command : '$name ($command)';
+}
+
+/// How one editor reads in a list you pick from.
+///
+/// Two notes can be true at once — this is the one on your machine, and this
+/// is the one most people pick — so they share a bracket instead of stacking
+/// into a line nobody finishes reading.
+String editorOptionLabel(String command, {required bool detected}) {
+  final notes = [
+    if (detected) 'Auto detected',
+    if (command == mostCommonEditor) 'most common',
+  ];
+  final label = editorLabel(command);
+  return notes.isEmpty ? label : '$label (${notes.join(', ')})';
 }
 
 /// The editors from [knownEditors] present on this machine.

@@ -1,3 +1,25 @@
+## 1.1.0
+
+`scan` now says when a newer release exists — one line, at most once a day.
+A CLI installed with `pub global activate` never updates itself and never
+mentions it, so whoever installed it once stayed on that version until they
+happened to hear otherwise. It gives up after two seconds, says nothing when
+offline, and `-a` skips it, because an unattended run has nobody to tell and
+CI should not reach for the network on a tool's behalf. Set
+`AMSCAN_NO_UPDATE_CHECK` to anything to turn it off.
+
+The editor list marks the one most people are using, so the question can be
+answered without knowing what any of the commands are. It is stated as a
+fact rather than read off the top of the list, which is ordered by install
+preference and could be reordered without changing which editor is common.
+
+README says how to update, and that the editors update separately —
+refreshing the command leaves an already-installed extension alone.
+
+`dart run tool/sync_version.dart` copies the pubspec's version into
+`lib/src/version.dart`, so the release that forgets is now the release that
+did not have to remember.
+
 ## 1.0.3
 
 `--version` reported 1.0.0 from both 1.0.1 and 1.0.2. The version is a
