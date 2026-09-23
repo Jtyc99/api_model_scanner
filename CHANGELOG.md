@@ -1,3 +1,11 @@
+## 1.0.1
+
+Rebuilds the VS Code extension bundled in this package. It carries its own
+copy of `package.json`, so it still named the repository's previous owner —
+renaming a repository does not rebuild what was already packaged. The
+extension's code is unchanged; only the manifest URLs move, and the bundled
+build no longer ships its own `.gitignore`.
+
 ## 1.0.0
 
 First release.
