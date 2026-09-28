@@ -20,6 +20,17 @@ intellijPlatform {
       untilBuild = provider { null }
     }
   }
+
+  // `gradle publishPlugin` is the only way to ship an update: the Marketplace
+  // web form takes new plugins only, and rejects an id it already knows.
+  //
+  // The token is a credential, so it is read from the environment or from
+  // ~/.gradle/gradle.properties — never from this repository. Make one at
+  // https://plugins.jetbrains.com/author/me/tokens
+  publishing {
+    token = providers.environmentVariable("JETBRAINS_MARKETPLACE_TOKEN")
+      .orElse(providers.gradleProperty("intellijPlatformPublishingToken"))
+  }
 }
 
 repositories {
