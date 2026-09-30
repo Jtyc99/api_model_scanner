@@ -3,7 +3,11 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
+import '../cli/targets.dart';
+import '../model.dart';
+import 'report.dart';
 import 'selection.dart';
+import 'unused_cache.dart';
 
 /// One commented-out range, as text plus where in the file it sits.
 ///
@@ -56,6 +60,16 @@ class DisabledField {
   /// into the unused record rather than dropping it on the floor.
   final int line;
 
+  /// Reads of a field by this name through a `dynamic` receiver, as the scan
+  /// found them. Carried through the record so a field keeps its standing:
+  /// `--remove` guards it the way `remove` did, and `--undo` hands it back to
+  /// the section it came from rather than to the table everything acts on.
+  final List<DynamicRead> dynamicReads;
+
+  /// Whether [dynamicReads] is an answer. False on a record written before
+  /// the check existed; `--remove` and `--undo` look before acting on it.
+  final bool dynamicChecked;
+
   const DisabledField({
     required this.className,
     required this.fieldName,
@@ -63,9 +77,42 @@ class DisabledField {
     required this.snippets,
     required this.disabledAt,
     this.line = 0,
+    this.dynamicReads = const [],
+    this.dynamicChecked = false,
   });
 
   String get key => '$filePath|$className|$fieldName';
+
+  /// `file|Class.field`, the key a [Selection] uses for this field.
+  String get selectionKey => '${classKey(filePath, className)}.$fieldName';
+
+  bool get readDynamically => dynamicReads.isNotEmpty;
+
+  /// This field as the unused record lists it, for `--undo` to hand back.
+  ///
+  /// With its reads: without them a field that was held apart comes back
+  /// into the table that SELECT EVERYTHING and `--all` act on — the very
+  /// removal it was held apart from.
+  CachedField toCachedField() => CachedField(
+        className: className,
+        fieldName: fieldName,
+        filePath: filePath,
+        line: line,
+        dynamicReads: dynamicReads,
+        dynamicChecked: dynamicChecked,
+      );
+
+  /// This record, checked: [reads] is what the check found, if anything.
+  DisabledField withDynamicReads(List<DynamicRead> reads) => DisabledField(
+        className: className,
+        fieldName: fieldName,
+        filePath: filePath,
+        snippets: snippets,
+        disabledAt: disabledAt,
+        line: line,
+        dynamicReads: reads,
+        dynamicChecked: true,
+      );
 
   List<String> get texts => [for (final s in snippets) s.text];
 
@@ -76,6 +123,8 @@ class DisabledField {
         snippets: kept,
         disabledAt: disabledAt,
         line: line,
+        dynamicReads: dynamicReads,
+        dynamicChecked: dynamicChecked,
       );
 
   Map<String, dynamic> toJson() => {
@@ -85,6 +134,9 @@ class DisabledField {
         'line': line,
         'snippets': [for (final s in snippets) s.toJson()],
         'disabledAt': disabledAt.toIso8601String(),
+        if (dynamicReads.isNotEmpty)
+          'dynamicReads': [for (final read in dynamicReads) read.toJson()],
+        if (dynamicChecked) 'checked': true,
       };
 
   factory DisabledField.fromJson(Map<String, dynamic> json) => DisabledField(
@@ -97,6 +149,13 @@ class DisabledField {
         ],
         disabledAt: DateTime.parse(json['disabledAt'] as String),
         line: (json['line'] as int?) ?? 0,
+        // A record written before dynamic reads were kept has neither key,
+        // and loads as unchecked, so the command acting on it looks first.
+        dynamicReads: [
+          for (final read in json['dynamicReads'] as List<dynamic>? ?? const [])
+            DynamicRead.fromJson(read as Map<String, dynamic>),
+        ],
+        dynamicChecked: json['checked'] == true,
       );
 }
 
@@ -197,19 +256,63 @@ class DisabledStore {
   String _render(List<DisabledField> fields) {
     final buffer = StringBuffer();
 
+    final safe = [for (final f in fields) if (!f.readDynamically) f];
+    final guarded = [for (final f in fields) if (f.readDynamically) f];
+
     buffer.writeln('# Disabled API model fields');
     buffer.writeln();
     buffer.writeln('**${fields.length} field${fields.length == 1 ? '' : 's'}** '
-        'commented out but still present in the source.');
+        'commented out but still present in the source'
+        '${guarded.isEmpty ? '' : ' · ${guarded.length} read dynamically'}.');
     buffer.writeln();
     buffer.writeln('Tick what you want, then run `amscan disable --undo` to '
         'put it back or `amscan disable --remove` to delete it for good. '
-        'With nothing ticked, both offer to act on everything.');
+        'With nothing ticked, both offer to act on everything'
+        '${guarded.isEmpty ? '' : ' — though `--remove` never takes a field '
+            'read dynamically without a tick of its own'}.');
     buffer.writeln();
     buffer.writeln('This file disappears once nothing is disabled.');
     buffer.writeln();
-    buffer.writeln('- [ ] **SELECT EVERYTHING**');
-    buffer.writeln();
+
+    // The same layout as the unused report, and for the same reasons: the few
+    // fields read dynamically first, where they cannot be missed, in shapes
+    // an older table editor cannot mistake for ordinary rows.
+    if (guarded.isNotEmpty) {
+      buffer.writeln('---');
+      buffer.writeln();
+      buffer.writeln('**⚠️ Read dynamically — deleted for good only when you '
+          'tick them**');
+      buffer.writeln();
+      buffer.writeln('A field of the same name was read through a dynamic '
+          'receiver when these were disabled, so the app may throw wherever '
+          'that read runs until they are back. --undo puts them back along '
+          'with everything else; --remove takes one only when it is ticked '
+          'itself.');
+      buffer.writeln();
+      _writeBlocks(buffer, guarded, guarded: true);
+    }
+
+    if (safe.isNotEmpty) {
+      if (guarded.isNotEmpty) {
+        buffer.writeln('---');
+        buffer.writeln();
+        buffer.writeln('**Disabled — safe to select together**');
+        buffer.writeln();
+      }
+      buffer.writeln('- [ ] **SELECT EVERYTHING**');
+      buffer.writeln();
+      _writeBlocks(buffer, safe, guarded: false);
+    }
+
+    return buffer.toString();
+  }
+
+  void _writeBlocks(
+    StringBuffer buffer,
+    List<DisabledField> fields, {
+    required bool guarded,
+  }) {
+    final bullet = guarded ? '*' : '-';
 
     final byFile = <String, List<DisabledField>>{};
     for (final field in fields) {
@@ -222,36 +325,55 @@ class DisabledStore {
         byClass.putIfAbsent(field.className, () => []).add(field);
       }
 
+      // Relative, so the preview can follow it in either IDE. There is no
+      // line to aim at: a disabled range is recorded by its text, and the
+      // lines around it have shifted anyway.
+      final location = '[${p.relative(entry.key, from: projectRoot)}]'
+          '(${p.relative(entry.key, from: directory)})';
+
       for (final classEntry in byClass.entries) {
-        buffer.writeln('---');
-        buffer.writeln();
-        buffer.writeln('## ${classEntry.key}');
-        buffer.writeln();
-        // Relative, so the preview can follow it in either IDE. There is no
-        // line to aim at: a disabled range is recorded by its text, and the
-        // lines around it have shifted anyway.
-        buffer.writeln('\u2514 [${p.relative(entry.key, from: projectRoot)}]'
-            '(${p.relative(entry.key, from: directory)})');
-        buffer.writeln();
-        buffer.writeln('- [ ] **All of `${classEntry.key}`**');
-        buffer.writeln();
+        if (guarded) {
+          buffer.writeln('### ${classEntry.key}');
+          buffer.writeln();
+          buffer.writeln('Declared in $location');
+          buffer.writeln();
+        } else {
+          buffer.writeln('---');
+          buffer.writeln();
+          buffer.writeln('## ${classEntry.key}');
+          buffer.writeln();
+          buffer.writeln('└ $location');
+          buffer.writeln();
+          buffer.writeln('- [ ] **All of `${classEntry.key}`**');
+          buffer.writeln();
+        }
 
         for (final field in classEntry.value) {
-          buffer.writeln('- [ ] **`${field.fieldName}`** \u00b7 '
+          // The same link form the unused report writes, so both editors can
+          // follow a read from either file.
+          final reads = !guarded
+              ? ''
+              : ' · read at ${field.dynamicReads.map((r) => deepLink(
+                    text: '${p.relative(r.filePath, from: projectRoot)}'
+                        ':${r.line}',
+                    file: p.absolute(r.filePath),
+                    line: r.line,
+                    host: currentHostIde(),
+                  )).join(', ')}';
+          buffer.writeln('$bullet [ ] **`${field.fieldName}`** · '
               '${field.snippets.length} '
-              'snippet${field.snippets.length == 1 ? '' : 's'}');
+              'snippet${field.snippets.length == 1 ? '' : 's'}$reads');
           for (final snippet in field.snippets) {
             final oneLine =
                 snippet.text.replaceAll(RegExp(r'\s+'), ' ').trim();
-            final shown =
-                oneLine.length > 88 ? '${oneLine.substring(0, 88)}\u2026' : oneLine;
-            buffer.writeln('  - `$shown`');
+            final shown = oneLine.length > 88
+                ? '${oneLine.substring(0, 88)}…'
+                : oneLine;
+            buffer.writeln('  $bullet `$shown`');
           }
           buffer.writeln();
         }
       }
     }
-
-    return buffer.toString();
   }
 }

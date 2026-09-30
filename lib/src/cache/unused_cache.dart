@@ -9,6 +9,31 @@ import '../model.dart';
 import 'report.dart';
 import 'selection.dart';
 
+/// Somewhere a field of this name is read through a `dynamic` receiver.
+class DynamicRead {
+  /// Absolute path.
+  final String filePath;
+
+  /// 1-based.
+  final int line;
+  final int column;
+
+  const DynamicRead({
+    required this.filePath,
+    required this.line,
+    required this.column,
+  });
+
+  Map<String, dynamic> toJson() =>
+      {'file': filePath, 'line': line, 'column': column};
+
+  factory DynamicRead.fromJson(Map<String, dynamic> json) => DynamicRead(
+        filePath: json['file'] as String,
+        line: json['line'] as int,
+        column: json['column'] as int,
+      );
+}
+
 /// One potentially unused field, as recorded in the cache.
 class CachedField {
   final String className;
@@ -20,12 +45,32 @@ class CachedField {
   /// One-based declaration line.
   final int line;
 
+  /// Reads of a field by this name through a `dynamic` receiver.
+  ///
+  /// Non-empty means "looks unused, but cannot be proven so": reference
+  /// search cannot follow a dynamic call, and removing the field would still
+  /// compile and then throw at runtime. Such a field is reported apart and is
+  /// only ever acted on when ticked by itself.
+  final List<DynamicRead> dynamicReads;
+
+  /// Whether [dynamicReads] is an answer. False on a field recorded before
+  /// the check existed — its empty list means "never looked", not "none" —
+  /// and `remove` / `disable` look before acting on it.
+  final bool dynamicChecked;
+
   const CachedField({
     required this.className,
     required this.fieldName,
     required this.filePath,
     required this.line,
+    this.dynamicReads = const [],
+    this.dynamicChecked = false,
   });
+
+  bool get readDynamically => dynamicReads.isNotEmpty;
+
+  /// `file|Class.field`, the key a [Selection] uses for this field.
+  String get key => '${classKey(filePath, className)}.$fieldName';
 
   factory CachedField.fromModelField(ModelField field) => CachedField(
         className: field.className,
@@ -34,18 +79,38 @@ class CachedField {
         line: field.line + 1,
       );
 
+  /// This field, checked: [reads] is what the check found, if anything.
+  CachedField withDynamicReads(List<DynamicRead> reads) => CachedField(
+        className: className,
+        fieldName: fieldName,
+        filePath: filePath,
+        line: line,
+        dynamicReads: reads,
+        dynamicChecked: true,
+      );
+
   Map<String, dynamic> toJson() => {
         'class': className,
         'field': fieldName,
         'file': filePath,
         'line': line,
+        if (dynamicReads.isNotEmpty)
+          'dynamicReads': [for (final read in dynamicReads) read.toJson()],
+        if (dynamicChecked) 'checked': true,
       };
 
+  // A cache written before dynamic reads were recorded has neither key, and
+  // loads as unchecked, so the next command to act on it looks first.
   factory CachedField.fromJson(Map<String, dynamic> json) => CachedField(
         className: json['class'] as String,
         fieldName: json['field'] as String,
         filePath: json['file'] as String,
         line: json['line'] as int,
+        dynamicReads: [
+          for (final read in json['dynamicReads'] as List<dynamic>? ?? const [])
+            DynamicRead.fromJson(read as Map<String, dynamic>),
+        ],
+        dynamicChecked: json['checked'] == true,
       );
 }
 

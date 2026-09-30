@@ -113,6 +113,18 @@ Future<ApplySummary> applySelection({
         .add(field);
   }
 
+  // Keyed by name alone, the way the scan matched them: a dynamic receiver
+  // cannot say which class it holds. Carried into the disabled record so the
+  // field keeps its standing through `--undo` and `--remove`.
+  final dynamicReads = <String, List<DynamicRead>>{
+    for (final field in fields)
+      if (field.readDynamically) field.fieldName: field.dynamicReads,
+  };
+  final checked = {
+    for (final field in fields)
+      if (field.dynamicChecked) field.fieldName,
+  };
+
   final modifiedFiles = <String>[];
   final skipped = <String>[];
   final originals = <String, String>{};
@@ -334,6 +346,8 @@ Future<ApplySummary> applySelection({
               snippets: snippets,
               disabledAt: DateTime.now(),
               line: lines[entry.key] ?? 0,
+              dynamicReads: dynamicReads[parts[1]] ?? const [],
+              dynamicChecked: checked.contains(parts[1]),
             ));
           }
         }
@@ -474,6 +488,8 @@ Future<ApplySummary> applySelection({
                 filePath: filePath,
                 snippets: snippets,
                 disabledAt: DateTime.now(),
+                dynamicReads: dynamicReads[fieldName] ?? const [],
+                dynamicChecked: checked.contains(fieldName),
               ));
             }
           }

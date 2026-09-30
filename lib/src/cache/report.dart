@@ -46,10 +46,13 @@ class ReportRenderer {
       return buffer.toString();
     }
 
-    final classCount = cache.fields.map((f) => f.className).toSet().length;
+    final safe = [for (final f in cache.fields) if (!f.readDynamically) f];
+    final guarded = [for (final f in cache.fields) if (f.readDynamically) f];
 
-    buffer.writeln('**${cache.fields.length} fields** · '
+    final classCount = safe.map((f) => f.className).toSet().length;
+    buffer.writeln('**${safe.length} field${safe.length == 1 ? '' : 's'}** · '
         '**$classCount ${classCount == 1 ? 'class' : 'classes'}** · '
+        '${guarded.isEmpty ? '' : '**${guarded.length} read dynamically** · '}'
         'scanned ${_formatTime(cache.scannedAt)} · '
         '${cache.totalFieldsScanned} fields checked');
     buffer.writeln();
@@ -59,24 +62,84 @@ class ReportRenderer {
     buffer.writeln('Ticking a class or field selects everything under it. '
         'Ticking `field declaration` takes the whole field, since nothing '
         'else can reference a field that no longer exists. '
-        'With nothing ticked, both commands offer to act on everything.');
+        'With nothing ticked, both commands offer to act on everything'
+        '${guarded.isEmpty ? '' : ' under SELECT EVERYTHING — never on the '
+            'fields read dynamically, listed first'}.');
     buffer.writeln();
     buffer.writeln('Every row links twice, because no single link works '
         'everywhere: **line N** is a relative path, which most editors will '
         'open, while **${deepLinkLabel(host)}** is the form that lands the '
         'cursor on the exact line in the editor this scan was run from.');
     buffer.writeln();
-    buffer.writeln('- [ ] **SELECT EVERYTHING**');
-    buffer.writeln();
+
+    // The fields read dynamically come first. There are usually only a few,
+    // so they cost the rest little room — and they are the rows that must not
+    // be missed, which is exactly what happens to a section at the foot of a
+    // report long enough to need scrolling.
+    if (guarded.isNotEmpty) {
+      buffer.writeln('---');
+      buffer.writeln();
+      // A banner rather than a `# ` heading: the table editors take the last
+      // `# ` line as the report's title, and ones released before this
+      // section would have shown this in place of it.
+      buffer.writeln('**⚠️ Read dynamically — taken only when you tick them**');
+      buffer.writeln();
+      buffer.writeln('Nothing references these by type, but a field of the '
+          'same name is read through a `dynamic` receiver — '
+          '`for (final bank in list ?? [])` makes `bank` dynamic — and no '
+          'reference search can follow that. Removing one still compiles, '
+          'then throws `NoSuchMethodError` when the read runs.');
+      buffer.writeln();
+      buffer.writeln('Matching is by name alone, since a dynamic receiver '
+          'cannot say which class it holds, so some of these may be truly '
+          'unused. Give each receiver a type and rescan — or tick a field '
+          'here once you have checked it. SELECT EVERYTHING, a class tick '
+          'and `--all` never reach this section.');
+      buffer.writeln();
+      _writeBlocks(buffer, cache, guarded, guarded: true);
+    }
+
+    if (safe.isNotEmpty) {
+      if (guarded.isNotEmpty) {
+        buffer.writeln('---');
+        buffer.writeln();
+        buffer.writeln('**Unused — safe to select together**');
+        buffer.writeln();
+      }
+      buffer.writeln('- [ ] **SELECT EVERYTHING**');
+      buffer.writeln();
+      _writeBlocks(buffer, cache, safe, guarded: false);
+    }
+
+    return buffer.toString();
+  }
+
+  /// One block per class, in the shape its section calls for.
+  ///
+  /// The guarded shape swaps `##` for `###` and `-` for `*`. Both render the
+  /// same in Markdown, but no pattern in a table editor released before this
+  /// section existed matches them — so such an editor cannot mistake these
+  /// rows for ordinary ones and tick them from SELECT EVERYTHING.
+  void _writeBlocks(
+    StringBuffer buffer,
+    UnusedCache cache,
+    List<CachedField> fields, {
+    required bool guarded,
+  }) {
+    final bullet = guarded ? '*' : '-';
 
     final byFile = <String, List<CachedField>>{};
-    for (final field in cache.fields) {
+    for (final field in fields) {
       byFile.putIfAbsent(field.filePath, () => []).add(field);
     }
 
     for (final fileEntry in byFile.entries) {
       final filePath = fileEntry.key;
       final plans = _plans(filePath, fileEntry.value);
+      final location = _relative(
+        p.relative(filePath, from: cache.projectRoot),
+        filePath,
+      );
 
       final byClass = <String, List<CachedField>>{};
       for (final field in fileEntry.value) {
@@ -86,36 +149,50 @@ class ReportRenderer {
       for (final classEntry in byClass.entries) {
         final className = classEntry.key;
 
-        buffer.writeln('---');
-        buffer.writeln();
-        buffer.writeln('## $className');
-        buffer.writeln();
-        buffer.writeln('└ ${_relative(
-          p.relative(filePath, from: cache.projectRoot),
-          filePath,
-        )}');
-        buffer.writeln();
-        buffer.writeln('- [ ] **All of `$className`**');
-        buffer.writeln();
-
-        if (cache.deadClasses.containsKey(classKey(filePath, className))) {
-          buffer.writeln('> 💀 **`$className` is dead.** Every field is '
-              'unused, and nothing outside the code being removed still names '
-              'the type. Ticking this class deletes the whole declaration, '
-              'and any field of type `$className` in another model goes with '
-              'it.');
+        if (guarded) {
+          buffer.writeln('### $className');
           buffer.writeln();
+          buffer.writeln('Declared in $location');
+          buffer.writeln();
+        } else {
+          buffer.writeln('---');
+          buffer.writeln();
+          buffer.writeln('## $className');
+          buffer.writeln();
+          buffer.writeln('└ $location');
+          buffer.writeln();
+          buffer.writeln('- [ ] **All of `$className`**');
+          buffer.writeln();
+
+          if (cache.deadClasses.containsKey(classKey(filePath, className))) {
+            buffer.writeln('> 💀 **`$className` is dead.** Every field is '
+                'unused, and nothing outside the code being removed still '
+                'names the type. Ticking this class deletes the whole '
+                'declaration, and any field of type `$className` in another '
+                'model goes with it.');
+            buffer.writeln();
+          }
         }
 
         for (final field in classEntry.value) {
-          final edits = plans['$className.${field.fieldName}'] ?? const <Edit>[];
+          final edits =
+              plans['$className.${field.fieldName}'] ?? const <Edit>[];
 
-          buffer.writeln('- [ ] **`${field.fieldName}`** · '
-              '${edits.length} part${edits.length == 1 ? '' : 's'}');
+          final reads = guarded
+              ? ' · read at ${field.dynamicReads.map((r) => _deep(
+                    '${p.relative(r.filePath, from: cache.projectRoot)}'
+                    ':${r.line}',
+                    r.filePath,
+                    r.line,
+                  )).join(', ')}'
+              : '';
+
+          buffer.writeln('$bullet [ ] **`${field.fieldName}`** · '
+              '${edits.length} part${edits.length == 1 ? '' : 's'}$reads');
 
           if (edits.isEmpty) {
-            buffer.writeln('  - ⚠️ No removable declaration found — the '
-                'source may have changed since the scan.');
+            buffer.writeln('  $bullet ⚠️ No removable declaration found — '
+                'the source may have changed since the scan.');
             buffer.writeln();
             continue;
           }
@@ -125,7 +202,7 @@ class ReportRenderer {
 
           for (final edit in edits) {
             buffer.writeln(
-              '  - [ ] `${edit.label.padRight(width)}` '
+              '  $bullet [ ] `${edit.label.padRight(width)}` '
               '${_relative('line ${edit.line}', filePath, edit.line)} · '
               '${_deep(deepLinkLabel(host), filePath, edit.line)}',
             );
@@ -134,8 +211,6 @@ class ReportRenderer {
         }
       }
     }
-
-    return buffer.toString();
   }
 
   /// Computes each field's removal plan against the current source, so every

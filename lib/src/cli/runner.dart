@@ -20,6 +20,7 @@ import 'uninstall.dart';
 import '../model.dart';
 import '../model_field_fixer.dart';
 import '../scanning/dead_classes.dart';
+import '../scanning/dynamic_access.dart';
 import '../scanning/model_discovery.dart';
 import '../scanning/unused_scanner.dart';
 import 'editor.dart';
@@ -227,10 +228,16 @@ abstract class _ModelCommand extends Command<int> {
       sink.write('\r\x1b[2K');
     }
 
-    final unused = usages
+    final candidates = usages
         .where((u) => u.isPotentiallyUnused)
         .map((u) => CachedField.fromModelField(u.field))
         .toList();
+
+    final marked = await _markDynamicReads(candidates);
+
+    // A field read through `dynamic` may be in use, so it keeps its class
+    // alive: judging a class dead around it would delete it whole.
+    final unused = [for (final f in marked) if (!f.readDynamically) f];
 
     // Work out which classes die once the unused fields are gone. This needs
     // the removal ranges, because a field's own type annotation is a reference
@@ -252,12 +259,139 @@ abstract class _ModelCommand extends Command<int> {
       projectRoot: projectRoot,
       modelsPath: modelsPath,
       totalFieldsScanned: fields.length,
-      fields: unused,
+      fields: marked,
       deadClasses: deadClasses,
     );
 
     cache.write(result);
     return result;
+  }
+
+  /// [candidates], each checked for reads of its name through `dynamic`.
+  ///
+  /// The language server cannot see those reads, so such a field arrives here
+  /// looking unused — and deleting it still compiles, then throws at runtime.
+  /// It stays in the report, in a section of its own that nothing but a tick
+  /// of its own can act on. The terminal says so too: a long report is rarely
+  /// read end to end, and not everyone opens it at all.
+  ///
+  /// Every field comes back marked as checked, found or not, so a later
+  /// command can tell "none" from "never looked".
+  Future<List<CachedField>> _markDynamicReads(
+    List<CachedField> candidates,
+  ) async {
+    final byName = await _dynamicReadsByName(
+      {for (final field in candidates) field.fieldName},
+    );
+    final marked = [
+      for (final field in candidates)
+        field.withDynamicReads(byName[field.fieldName] ?? const []),
+    ];
+    _sayDynamicReads(marked.where((f) => f.readDynamically).length, byName);
+    return marked;
+  }
+
+  /// Reads of each of [names] through a `dynamic` receiver, keyed by name.
+  ///
+  /// A file that cannot be resolved is skipped — and said so, loudly, since a
+  /// read there goes unseen and its field is offered as though it were safe.
+  Future<Map<String, List<DynamicRead>>> _dynamicReadsByName(
+    Set<String> names,
+  ) async {
+    final failed = <String>[];
+    final found = await findDynamicAccesses(
+      projectRoot: projectRoot,
+      names: names,
+      onError: (path, _) => failed.add(path),
+    );
+
+    if (failed.isNotEmpty) {
+      say('');
+      say('  ${warnish('!')}  ${bold('${failed.length} '
+          'file${failed.length == 1 ? '' : 's'} could not be checked for '
+          'dynamic reads')} ${dim('— a field read only there is not '
+              'protected')}');
+      for (final path in failed.take(5)) {
+        say('     ${dim(shortPath(path, projectRoot))}');
+      }
+    }
+
+    final byName = <String, List<DynamicRead>>{};
+    for (final access in found) {
+      byName.putIfAbsent(access.name, () => []).add(DynamicRead(
+            filePath: access.filePath,
+            line: access.line,
+            column: access.column,
+          ));
+    }
+    return byName;
+  }
+
+  /// The terminal's account of what was found. A common name read through
+  /// `dynamic` all over an app would otherwise print a line per read, so
+  /// the list stops at a handful; the report has all of them.
+  void _sayDynamicReads(int fields, Map<String, List<DynamicRead>> byName) {
+    if (fields == 0) {
+      return;
+    }
+    const shown = 10;
+    final reads = [
+      for (final entry in byName.entries)
+        for (final read in entry.value) (entry.key, read),
+    ];
+
+    say('');
+    say('  ${warnish('!')}  ${bold('$fields '
+        'field${fields == 1 ? '' : 's'} read dynamically')} '
+        '${dim('— listed apart in the report, and only acted on when '
+            'ticked')}');
+    for (final (name, read) in reads.take(shown)) {
+      final at = '${shortPath(read.filePath, projectRoot)}'
+          ':${read.line}:${read.column}';
+      say('     ${accent(name)}  ${dim(at)}');
+    }
+    if (reads.length > shown) {
+      say('     ${dim('…and ${reads.length - shown} more, all listed in the '
+          'report')}');
+    }
+    say('     ${dim('Give each receiver a type, e.g. '
+        '`for (final Bank b in list ?? [])`, and rescan.')}');
+  }
+
+  /// [cache], with every field recorded before the dynamic-read check
+  /// checked now.
+  ///
+  /// Such a report cannot say which of its fields are read that way, and
+  /// acting on it as it stands is how an upgrade deletes the very field the
+  /// check exists to keep. They are looked up by name, as a scan would, before
+  /// anything is selected. The report on disk is left alone until the command
+  /// writes it, so no tick in it is lost.
+  Future<UnusedCache> _checkUnchecked(UnusedCache cache) async {
+    final unchecked = [
+      for (final field in cache.fields)
+        if (!field.dynamicChecked) field,
+    ];
+    if (unchecked.isEmpty) {
+      return cache;
+    }
+
+    say('  ${dim('${unchecked.length} '
+        'field${unchecked.length == 1 ? '' : 's'} in this report '
+        '${unchecked.length == 1 ? 'predates' : 'predate'} the check for '
+        'dynamic reads — checking now.')}');
+    final checked = {
+      for (final field in await _markDynamicReads(unchecked)) field.key: field,
+    };
+    say('');
+
+    return UnusedCache(
+      scannedAt: cache.scannedAt,
+      projectRoot: cache.projectRoot,
+      modelsPath: cache.modelsPath,
+      totalFieldsScanned: cache.totalFieldsScanned,
+      fields: [for (final field in cache.fields) checked[field.key] ?? field],
+      deadClasses: cache.deadClasses,
+    );
   }
 
   /// Computes each unused field's removal ranges, then iterates the dead-class
@@ -407,6 +541,15 @@ class ScanCommand extends _ModelCommand {
         say('  Keeping the existing report:');
         say('  ${cache.reportPath}');
         say('');
+        // Kept, not rewritten: rewriting would drop its ticks. But it cannot
+        // show which fields are read dynamically, so say so — `remove` and
+        // `disable` check those fields themselves before acting.
+        if (existing.fields.any((f) => !f.dynamicChecked)) {
+          say('  ${dim('It predates the check for dynamic reads, so it does '
+              'not list them apart — rescan to see them. `remove` and '
+              '`disable` check before they act either way.')}');
+          say('');
+        }
         // Declining a rescan still means "show me the results".
         if (shouldOpen && openInEditor(cache.reportPath) == null) {
           say('  Could not open an editor automatically — open the path above.');
@@ -530,6 +673,8 @@ abstract class _MutatingCommand extends _ModelCommand {
       return 0;
     }
 
+    result = await _checkUnchecked(result);
+
     final selection = _resolveSelection(result);
     if (selection == null) {
       say('  Nothing selected. Exiting without changes.');
@@ -594,9 +739,16 @@ abstract class _MutatingCommand extends _ModelCommand {
             : 'All recorded fields disabled — '
                 'undo with `amscan disable --undo`.');
       } else {
+        final dynamicLeft = remaining.where((f) => f.readDynamically).length;
         say('');
-        say('${remaining.length} field${remaining.length == 1 ? '' : 's'} '
-            'still listed in the report.');
+        say(dynamicLeft == remaining.length
+            ? '$dynamicLeft field${dynamicLeft == 1 ? '' : 's'} read '
+                'dynamically left in the report — '
+                'tick ${dynamicLeft == 1 ? 'it' : 'one'} to act on it.'
+            : '${remaining.length} field${remaining.length == 1 ? '' : 's'} '
+                'still listed in the report'
+                '${dynamicLeft == 0 ? '' : ', $dynamicLeft read dynamically'}'
+                '.');
       }
 
       if (summary.disabled.isNotEmpty) {
@@ -618,24 +770,42 @@ abstract class _MutatingCommand extends _ModelCommand {
   /// Reads the ticks from the report, falling back to a prompt when nothing
   /// is selected. Returns null when the user declines.
   Selection? _resolveSelection(UnusedCache result) {
+    // Every way of saying "everything" — the box, a class, --all, -a, and yes
+    // to the prompt below — means what the scan could vouch for. A field read
+    // through `dynamic` is outside that, so each path is guarded the same way.
+    final guarded = {
+      for (final field in result.fields)
+        if (field.readDynamically) field.key,
+    };
+
     // --accept-all implies --all: the affirmative answer to "nothing is
     // ticked, act on everything?" is exactly what --all means.
     if (argResults!['all'] as bool || acceptAll) {
-      return const Selection(all: true);
+      _sayGuardedSkipped(guarded.length);
+      return const Selection(all: true).guarding(guarded);
     }
 
-    final selection = cache.readSelection();
+    final selection = cache.readSelection().guarding(guarded);
     if (selection.isNotEmpty) {
       say('  Using ${selection.markedCount} selection'
           '${selection.markedCount == 1 ? '' : 's'} from the report.');
       say('');
+      _warnGuardedTicked(result, selection);
       return selection;
     }
 
-    final count = result.fields.length;
+    final count = result.fields.length - guarded.length;
     say('  Nothing is ticked in the report:');
     say('  ${cache.reportPath}');
     say('');
+
+    if (count == 0) {
+      say('  Every field left is read dynamically, so none is taken without '
+          'a tick of its own.');
+      say('');
+      return null;
+    }
+    _sayGuardedSkipped(guarded.length);
 
     if (!canPrompt) {
       stderr.writeln(
@@ -653,7 +823,42 @@ abstract class _MutatingCommand extends _ModelCommand {
       ],
     );
 
-    return choice == 1 ? const Selection(all: true) : null;
+    return choice == 1 ? const Selection(all: true).guarding(guarded) : null;
+  }
+
+  void _sayGuardedSkipped(int count) {
+    if (count == 0) {
+      return;
+    }
+    say('  ${dim('Skipping $count field${count == 1 ? '' : 's'} read '
+        'dynamically — tick ${count == 1 ? 'it' : 'one'} in the report to '
+        'act on it.')}');
+    say('');
+  }
+
+  /// Names each guarded field that was ticked on purpose, and where it is
+  /// read — the tick is honoured, but this is the moment to be sure of it.
+  void _warnGuardedTicked(UnusedCache result, Selection selection) {
+    final ticked = [
+      for (final field in result.fields)
+        if (field.readDynamically && selection.touchesGuarded(field.key))
+          field,
+    ];
+    if (ticked.isEmpty) {
+      return;
+    }
+
+    say('  ${warnish('!')}  ${bold('Acting on ${ticked.length} '
+        'field${ticked.length == 1 ? '' : 's'} read dynamically')} '
+        '${dim('— each read below throws once the field is gone')}');
+    for (final field in ticked) {
+      for (final read in field.dynamicReads) {
+        say('     ${accent('${field.className}.${field.fieldName}')}  '
+            '${dim('${shortPath(read.filePath, projectRoot)}'
+                ':${read.line}:${read.column}')}');
+      }
+    }
+    say('');
   }
 }
 
@@ -726,23 +931,48 @@ class DisableCommand extends _MutatingCommand {
     List<DisabledField> all, {
     required bool restore,
   }) {
+    // Deleting for good is where a field read through `dynamic` can break
+    // the app, so `--remove` guards those exactly as `remove` does: nothing
+    // but a tick of their own reaches them. `--undo` does not — putting code
+    // back is always safe, and an "undo everything" that left these commented
+    // out would leave behind precisely the code that throws.
+    final guarded = restore
+        ? const <String>{}
+        : {
+            for (final field in all)
+              if (field.readDynamically) field.selectionKey,
+          };
+
     // --accept-all implies --all: the affirmative answer to "nothing is
     // ticked, act on everything?" is exactly what --all means.
     if (argResults!['all'] as bool || acceptAll) {
-      return const Selection(all: true);
+      _sayGuardedSkipped(guarded.length);
+      return const Selection(all: true).guarding(guarded);
     }
 
-    final selection = store.readSelection();
+    final selection = store.readSelection().guarding(guarded);
     if (selection.isNotEmpty) {
       say('  Using ${selection.markedCount} selection'
           '${selection.markedCount == 1 ? '' : 's'} from the record.');
       say('');
+      if (!restore) {
+        _warnGuardedDisabled(all, selection);
+      }
       return selection;
     }
 
     say('  Nothing is ticked in the record:');
     say('  ${store.reportPath}');
     say('');
+
+    final count = all.length - guarded.length;
+    if (count == 0) {
+      say('  Every disabled field is read dynamically, so none is deleted '
+          'without a tick of its own.');
+      say('');
+      return null;
+    }
+    _sayGuardedSkipped(guarded.length);
 
     if (!canPrompt) {
       stderr.writeln(
@@ -753,15 +983,42 @@ class DisableCommand extends _MutatingCommand {
     }
 
     final choice = selectSingle(
-      '  ${restore ? 'Re-enable' : 'Remove'} all ${all.length} '
-      'disabled field${all.length == 1 ? '' : 's'}?',
+      '  ${restore ? 'Re-enable' : 'Remove'} all $count '
+      'disabled field${count == 1 ? '' : 's'}?',
       [
         'No — exit so I can tick some first',
         'Yes — apply to everything',
       ],
     );
 
-    return choice == 1 ? const Selection(all: true) : null;
+    return choice == 1 ? const Selection(all: true).guarding(guarded) : null;
+  }
+
+  /// Names each disabled field read dynamically that is about to be deleted
+  /// for good, and where it is read — the tick is honoured, but this is the
+  /// last moment the code can still come back.
+  void _warnGuardedDisabled(List<DisabledField> all, Selection selection) {
+    final ticked = [
+      for (final field in all)
+        if (field.readDynamically &&
+            selection.touchesGuarded(field.selectionKey))
+          field,
+    ];
+    if (ticked.isEmpty) {
+      return;
+    }
+
+    say('  ${warnish('!')}  ${bold('Deleting ${ticked.length} '
+        'field${ticked.length == 1 ? '' : 's'} read dynamically')} '
+        '${dim('— each read below throws once the field is gone')}');
+    for (final field in ticked) {
+      for (final read in field.dynamicReads) {
+        say('     ${accent('${field.className}.${field.fieldName}')}  '
+            '${dim('${shortPath(read.filePath, projectRoot)}'
+                ':${read.line}:${read.column}')}');
+      }
+    }
+    say('');
   }
 
   /// Acts on the already-disabled record: puts the code back (`--undo`) or
@@ -774,12 +1031,41 @@ class DisableCommand extends _MutatingCommand {
     );
 
     final store = DisabledStore(projectRoot);
-    final all = store.read();
+    var all = store.read();
 
     if (all.isEmpty) {
       say('  Nothing is disabled.');
       say('');
       return 0;
+    }
+
+    // A record written before the check cannot say whether its field is read
+    // through `dynamic` — which decides both whether `--remove` guards it and
+    // which section `--undo` hands it back to. Look now, by name.
+    final unchecked = [
+      for (final field in all)
+        if (!field.dynamicChecked) field,
+    ];
+    if (unchecked.isNotEmpty) {
+      say('  ${dim('${unchecked.length} disabled '
+          'field${unchecked.length == 1 ? '' : 's'} '
+          '${unchecked.length == 1 ? 'predates' : 'predate'} the check for '
+          'dynamic reads — checking now.')}');
+      final byName = await _dynamicReadsByName(
+        {for (final field in unchecked) field.fieldName},
+      );
+      all = [
+        for (final field in all)
+          field.dynamicChecked
+              ? field
+              : field.withDynamicReads(byName[field.fieldName] ?? const []),
+      ];
+      final looked = {for (final field in unchecked) field.key};
+      _sayDynamicReads(
+        all.where((f) => looked.contains(f.key) && f.readDynamically).length,
+        byName,
+      );
+      say('');
     }
 
     // Same selection contract as the unused report: ticks win, and with
@@ -991,12 +1277,7 @@ class DisableCommand extends _MutatingCommand {
           for (final f in restored)
             if (!known.contains('${f.filePath}|${f.className}|${f.fieldName}') &&
                 f.fieldName != _wholeClassField)
-              CachedField(
-                className: f.className,
-                fieldName: f.fieldName,
-                filePath: f.filePath,
-                line: f.line,
-              ),
+              f.toCachedField(),
         ];
 
         if (added.isNotEmpty) {

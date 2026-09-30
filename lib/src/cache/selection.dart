@@ -25,24 +25,48 @@ class Selection {
   /// Individually selected parts, keyed `file|Class.field#index`.
   final Set<String> parts;
 
+  /// Fields that only a tick of their own can select, keyed `file|Class.field`.
+  ///
+  /// These look unused but are read through a `dynamic` receiver somewhere,
+  /// so removing one compiles and then throws at runtime. "Everything", a
+  /// whole class, `--all` and `-a` all mean "what the scan could vouch for",
+  /// and it could not vouch for these — so none of them reach here. The only
+  /// way in is a tick on the field itself or on one of its parts.
+  final Set<String> guarded;
+
   const Selection({
     this.all = false,
     this.classes = const {},
     this.fields = const {},
     this.parts = const {},
+    this.guarded = const {},
   });
 
   static const empty = Selection();
+
+  /// This selection, with [keys] reachable only by a tick of their own.
+  Selection guarding(Set<String> keys) => Selection(
+        all: all,
+        classes: classes,
+        fields: fields,
+        parts: parts,
+        guarded: keys,
+      );
 
   bool get isEmpty =>
       !all && classes.isEmpty && fields.isEmpty && parts.isEmpty;
 
   bool get isNotEmpty => !isEmpty;
 
-  bool selectsWholeField(String filePath, String className, String fieldName) =>
-      all ||
-      classes.contains(classKey(filePath, className)) ||
-      fields.contains('${classKey(filePath, className)}.$fieldName');
+  bool selectsWholeField(String filePath, String className, String fieldName) {
+    final key = '${classKey(filePath, className)}.$fieldName';
+    if (guarded.contains(key)) {
+      return fields.contains(key);
+    }
+    return all ||
+        classes.contains(classKey(filePath, className)) ||
+        fields.contains(key);
+  }
 
   bool selectsPart(
     String filePath,
@@ -52,6 +76,10 @@ class Selection {
   ) =>
       selectsWholeField(filePath, className, fieldName) ||
       parts.contains('${classKey(filePath, className)}.$fieldName#$index');
+
+  /// Whether anything of the guarded field [key] is ticked.
+  bool touchesGuarded(String key) =>
+      fields.contains(key) || parts.any((part) => part.startsWith('$key#'));
 
   /// Total number of distinct things ticked, for reporting.
   int get markedCount =>
@@ -85,6 +113,25 @@ class _Patterns {
   /// `└ [lib/server/response/gift.dart](../../lib/...)` — names the file the
   /// block belongs to, and always precedes its checkboxes.
   static final classFile = RegExp(r'^└\s*\[([^\]]+)\]');
+
+  // The fields read through `dynamic` live in a section of their own, written
+  // in shapes none of the patterns above match: `###` rather than `##`, `*`
+  // bullets rather than `-`. That is deliberate. A table editor released
+  // before this section existed would otherwise take them for ordinary rows,
+  // and its SELECT EVERYTHING would tick them — the exact removal this
+  // section exists to prevent. To such an editor, they are simply not there.
+
+  /// `### DepositBank`
+  static final guardedHeading = RegExp(r'^#{3}\s+(.+?)\s*$');
+
+  /// `Declared in [lib/models/person.dart](...)`
+  static final guardedFile = RegExp(r'^Declared in \[([^\]]+)\]');
+
+  /// `* [x] **`minAmount`** · 3 parts · read at ...`  (unindented)
+  static final guardedField = RegExp(r'^\*\s*\[([ xX])\]\s*\*\*`([^`]+)`\*\*');
+
+  /// `  * [x] `field declaration` [line 14](...)`  (indented)
+  static final guardedPart = RegExp(r'^\s+\*\s*\[([ xX])\]');
 }
 
 bool _ticked(String box) => box.toLowerCase() == 'x';
@@ -113,12 +160,19 @@ Selection parseSelection(String markdown, {required String projectRoot}) {
       : classKey(currentFile, currentClass);
 
   for (final line in const LineSplitter().convert(markdown)) {
-    final heading = _Patterns.heading.firstMatch(line);
+    final heading = _Patterns.heading.firstMatch(line) ??
+        _Patterns.guardedHeading.firstMatch(line);
     if (heading != null) {
       currentClass = heading.group(1)!.trim();
       currentFile = null;
       currentField = null;
       partIndex = 0;
+      continue;
+    }
+
+    final guardedFile = _Patterns.guardedFile.firstMatch(line);
+    if (guardedFile != null) {
+      currentFile = p.normalize(p.join(projectRoot, guardedFile.group(1)!));
       continue;
     }
 
@@ -137,7 +191,8 @@ Selection parseSelection(String markdown, {required String projectRoot}) {
     }
 
     // Indented items are parts of the field most recently seen.
-    final part = _Patterns.part.firstMatch(line);
+    final part = _Patterns.part.firstMatch(line) ??
+        _Patterns.guardedPart.firstMatch(line);
     if (part != null) {
       final scoped = scope();
       if (scoped != null && currentField != null) {
@@ -161,7 +216,8 @@ Selection parseSelection(String markdown, {required String projectRoot}) {
       continue;
     }
 
-    final field = _Patterns.field.firstMatch(line);
+    final field = _Patterns.field.firstMatch(line) ??
+        _Patterns.guardedField.firstMatch(line);
     if (field != null && currentClass != null) {
       currentField = field.group(2)!;
       partIndex = 0;
