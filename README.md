@@ -23,9 +23,29 @@ certainty. Use it at your own risk.**
 It answers one question — *does anything reference this field?* — and static
 analysis cannot answer that completely:
 
-- **Dynamic access is invisible.** A field reached through `json['x']`,
-  reflection, code generation, or a package you do not build from source looks
-  unreferenced. Removing it compiles cleanly and breaks at runtime.
+- **Dynamic access is mostly invisible.** A field reached through
+  `json['x']`, reflection, code generation, or a package you do not build from
+  source looks unreferenced. Removing it compiles cleanly and breaks at
+  runtime.
+
+  The exception is a member read on a `dynamic` receiver. In
+  `for (final bank in person.banks ?? [])`, `bank` is `dynamic`, so
+  `bank.minAmount` is a reference no search can find. `scan` finds those reads
+  itself and lists every field of that name in a section of its own at the
+  top of the report — and in the terminal too, for anyone who does not open
+  it. SELECT EVERYTHING, a class tick, `--all` and `-a` never reach
+  it: only a tick on the field itself does, so nothing there is removed by
+  accident, and it stays listed after `remove` or `disable` until you decide.
+  A field disabled from there keeps its standing: `disabled_fields.md` lists
+  it apart in the same way, `disable --remove` guards it just as `remove`
+  does, and `disable --undo` hands it back to that section rather than to the
+  table everything acts on. `--undo` alone is not guarded — putting code back
+  is always safe, and "undo everything" means everything.
+  Give the receiver a type (`for (final Bank bank in …)`) and the next scan
+  judges the field on its merits. Matching is by name, since a dynamic value
+  cannot say which class it holds, so a truly unused field can land there too.
+  To see every dynamic read in your app, not just ones that touch a model
+  field, enable the `avoid_dynamic_calls` lint.
 - **"Unused" is a claim about today's code.** A field nothing reads yet, but
   that a half-finished feature or another team's branch expects, will be
   reported.
@@ -234,7 +254,16 @@ those.
 
 There is also a **VS Code editor** that renders the report as a real table
 with checkbox cells, restricts editing to the checkboxes, and jumps to source
-on click — see [editors/vscode](editors/vscode). `init` offers to install it;
+on click — see [editors/vscode](editors/vscode). Fields read dynamically get a
+table of their own on top, with where each is read. It starts folded, since
+nothing in it is taken without a tick of its own — its bar stays in view with
+a count and a line saying why those rows are there — and the table everything
+acts on starts open. Click a bar, or its **Show** / **Hide**, to fold or
+unfold it; while filtering, any table with a match opens.
+Columns fit their content; drag a
+column's edge to resize it, double-click the edge to fit it, and **Fit
+columns** to undo it all. Text too long for its column ends in an ellipsis and
+shows in full on hover. `init` offers to install it;
 `amscan gui install` and `amscan gui uninstall` manage it after that. It
 writes to the same Markdown file, so nothing depends on it being installed.
 
@@ -318,7 +347,7 @@ than a broken build.
 | `--[no-]format` | `remove`, `disable` | Run `dart format` on modified files (default: on) |
 | `-a`, `--accept-all` | `scan`, `remove`, `disable` | Answer every prompt affirmatively; never wait for input |
 | `-a`, `--accept-all` | `init` | Never wait for input; leave unflagged answers unset |
-| `--all` | `remove`, `disable` | Act on everything, ignoring ticks |
+| `--all` | `remove`, `disable` | Act on everything, ignoring ticks — except fields read dynamically |
 | `--force` | `remove`, `disable` | Allow a dirty tree, and offer a rescan first |
 | `--undo` | `disable` | Uncomment previously disabled fields |
 | `--remove` | `disable` | Delete previously disabled fields for good |
@@ -333,11 +362,14 @@ tool version and exits.
 
 `--undo` never needs `--force`: `disable` dirties the tree by construction, so
 requiring a clean one would make undo unreachable exactly when you want it.
-`--remove`, the only irreversible step, still asks for it.
+`--remove`, the only irreversible step, still asks for it — and never deletes
+a field read dynamically unless that field is ticked itself.
 
 With nothing ticked, `remove` and `disable` ask before acting on everything and
 default to **No**. `--all` answers up front. With no terminal to ask on they
-refuse rather than hang.
+refuse rather than hang. "Everything" never includes the fields read
+dynamically — those are only taken when ticked themselves, and the command
+names each one and where it is read before it acts.
 
 For an unattended run, `-a` answers *every* prompt — the cached-results offer,
 the rescan after `--force`, and the nothing-ticked question, which it answers
@@ -383,6 +415,10 @@ All under `.dart_tool/api_model_scanner/`, which git already ignores.
 | `disabled_fields.json` | What is currently commented out |
 | `disabled_fields.md` | Tickable record for `--undo` / `--remove` |
 
+The machine-wide settings directory also holds `update_check.json`: when
+`scan` last asked pub.dev for the latest version, and what it said.
+`uninstall` removes that directory whole.
+
 A record outlives its own contents while the *other* one still holds
 something: `disable` empties the unused report, and `--undo` needs its header
 — when the scan ran, and where — to hand the fields back. So after undoing, a
@@ -427,3 +463,34 @@ harmless.
 dart test
 dart analyze
 ```
+
+`dart test` includes `test/commands_test.dart`, which runs the real CLI in a
+process of its own against a throwaway project — the commands read the
+project from the working directory, which a test cannot change without
+disturbing every other test beside it. It compiles the CLI once per run.
+
+The editors have suites of their own: `npm test` in `editors/vscode`, and
+`gradle :report:test` in `editors/intellij`.
+
+### Releasing
+
+Each of these has gone wrong at least once, which is why it is written down.
+
+1. **Bump `version:` in `pubspec.yaml`, then run `dart run
+   tool/sync_version.dart`.** `lib/src/version.dart` is a copy — a globally
+   activated snapshot cannot read the pubspec — and `test/version_test.dart`
+   fails when the two disagree.
+2. **Rebuild the bundled editors whenever their source changed.** The `.vsix`
+   in `editors/vscode` and the plugin under `editors/intellij/plugin/` are
+   committed and ship inside the package; a source change that is not rebuilt
+   ships the old build. That includes `editors/vscode/README.md`, which the
+   `.vsix` carries as its Marketplace page. See each editor's README for the
+   steps. A rebuilt artifact whose version has already shipped needs a new
+   version.
+3. **Publish the editors before the package** — the VS Code extension with
+   `npx @vscode/vsce publish`, the Android Studio plugin with `gradle
+   publishPlugin`. `amscan gui install` prefers the Marketplace, so a package
+   that bundles a newer editor than the Marketplace has would install the
+   older one.
+4. **`dart pub publish --dry-run`, then publish**, and check the result by
+   downloading the published archive rather than trusting the upload.

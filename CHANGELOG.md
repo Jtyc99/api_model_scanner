@@ -1,3 +1,81 @@
+## 1.2.0
+
+**A field read through `dynamic` is no longer offered for removal as though
+it were unused.** `for (final bank in person.banks ?? [])` makes `bank`
+dynamic, so `bank.minAmount` is a reference no search can find: `scan`
+called `minAmount` unused, `remove` deleted it, the safety net passed it —
+it still compiles — and the app threw `NoSuchMethodError` the first time the
+loop ran. `scan` now resolves the files that mention a candidate's name and
+finds reads on dynamic receivers itself.
+
+Those fields get a section of their own at the top of the report — they are
+usually few, and they are the rows that must not be missed — with where each
+is read, and the terminal lists them too. SELECT EVERYTHING, a
+class tick, `--all`, `-a` and "yes" to the nothing-ticked prompt all stop
+short of it; only a tick on the field or one of its parts reaches it, and
+the command names each one and where it is read before acting. They stay in
+the report after `remove` or `disable`, and never count towards a class
+being dead. Matching is by name — a dynamic value cannot say which class it
+holds — so a truly unused field can be held back; tick it once you have
+checked.
+
+The section is written in shapes the table editors released before it do
+not recognise, so their Select All cannot tick those rows: to them the
+section is simply not there. Both editors now draw it as a table of its own,
+with a **Read At** column. It starts folded under a heading that shows how
+many fields it holds — nothing in it is taken without a tick of its own, so
+nothing is lost by not seeing it at first — while the table everything acts
+on starts open. Folded, its bar says what those rows are doing there and
+that nothing in them is removed, with **Show** beside it, so nobody is left
+wondering why a report outlives a `remove` or has to guess that a caret
+opens anything. Either folds with a click, the choice is remembered, and a
+filter opens any table holding a match.
+
+**Fields read dynamically keep their standing once disabled.** The
+disabled record now keeps each field's reads, so `disabled_fields.md` lists
+those fields apart, on top, exactly as the unused report does; `disable
+--remove` guards them as `remove` does — SELECT EVERYTHING, a class tick,
+`--all` and `-a` stop short, and only a tick of their own deletes one, with
+the reads named first; and `disable --undo` hands each back to the section
+it came from. It used to rebuild every field without its reads, so a field
+held apart came back into the table that SELECT EVERYTHING acts on — one
+`remove` away from the crash it had been held apart from. `--undo` itself
+is not guarded: putting code back is always safe. A record written by an
+older version loads with no reads, as its scan found.
+
+**Upgrading does not skip the check.** A report or disabled record written
+by an earlier version cannot say which of its fields are read dynamically —
+its empty list of reads means "never looked", not "none" — so `remove`,
+`disable`, `disable --remove` and `disable --undo` look those fields up by
+name before acting, and leave the ticks in the report as they were. Without
+this, `remove --all` on a report scanned before upgrading would delete a
+field read dynamically, exactly as before.
+
+Files the project's `analysis_options.yaml` excludes — generated `*.g.dart`
+most often — are skipped by the check, as the analyzer and the reference
+search skip them, and a file that fails to resolve is named in the terminal
+rather than silently passed over. The terminal lists the first ten reads
+and leaves the rest to the report, which has all of them.
+
+The table editors now show a disabled field's commented-out code. Those rows
+carry no checkbox, and were read as nothing at all: every disabled field
+said "No removable declaration found". Each report also names its own
+sections now, so the disabled one no longer calls its table "Unused".
+
+In Android Studio, a column's edge shows a resize cursor. The IDE's embedded
+browser hands the page's cursor to Swing as one of AWT's built-in shapes, and
+`col-resize` does not survive that — it arrived as the plain arrow — so the
+plugin asks for `e-resize`, which does.
+
+In Android Studio, a link to a file under a folder named in anything but
+ASCII opens that file; the plugin decoded each escaped byte as a character
+of its own, so `项目` became `é¡¹ç®` and every such link led nowhere.
+
+Both editors' columns fit their content, can be dragged to any width,
+double-clicked to fit, and reset with **Fit columns**; text too long for its
+column ends in an ellipsis and shows in full on hover. Bundles the VS Code
+extension 1.1.0 and the Android Studio plugin 1.1.0.
+
 ## 1.1.0
 
 `scan` now says when a newer release exists — one line, at most once a day.
