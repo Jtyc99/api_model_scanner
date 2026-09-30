@@ -48,6 +48,10 @@ sealed interface Located {
   data class Klass(val classIndex: Int) : Located
   data class FieldRow(val classIndex: Int, val fieldIndex: Int) : Located
   data class PartRow(val classIndex: Int, val fieldIndex: Int) : Located
+
+  /** A row in the guarded section; indices point into `report.guarded`. */
+  data class GuardedField(val classIndex: Int, val fieldIndex: Int) : Located
+  data class GuardedPart(val classIndex: Int, val fieldIndex: Int) : Located
 }
 
 /** Finds the box on [line], or null when that line holds none. */
@@ -59,6 +63,12 @@ fun locate(report: Report, line: Int): Located? {
     block.fields.forEachIndexed { f, field ->
       if (field.line == line) return Located.FieldRow(c, f)
       if (field.parts.any { it.line == line }) return Located.PartRow(c, f)
+    }
+  }
+  report.guarded.forEachIndexed { c, block ->
+    block.fields.forEachIndexed { f, field ->
+      if (field.line == line) return Located.GuardedField(c, f)
+      if (field.parts.any { it.line == line }) return Located.GuardedPart(c, f)
     }
   }
   return null
@@ -104,6 +114,9 @@ fun desiredStates(report: Report, line: Int, checked: Boolean): Map<Int, Boolean
     is Located.FieldRow ->
       setField(report.classes[target.classIndex].fields[target.fieldIndex])
     is Located.PartRow -> state[line] = checked
+    is Located.GuardedField ->
+      setField(report.guarded[target.classIndex].fields[target.fieldIndex])
+    is Located.GuardedPart -> state[line] = checked
   }
 
   // Settle every parent from the bottom up. A field with no parts of its own
@@ -117,6 +130,16 @@ fun desiredStates(report: Report, line: Int, checked: Boolean): Map<Int, Boolean
     }
     if (block.column >= 0 && block.fields.isNotEmpty()) {
       state[block.line] = block.fields.all { state[it.line] == true }
+    }
+  }
+
+  // A guarded field follows its own parts, and nothing follows it: it has no
+  // class box, and it never counts toward Select Everything.
+  for (block in report.guarded) {
+    for (field in block.fields) {
+      if (field.parts.isNotEmpty()) {
+        state[field.line] = field.parts.all { state[it.line] == true }
+      }
     }
   }
 
@@ -136,6 +159,12 @@ fun allBoxes(report: Report): List<Box> {
   report.selectAll?.let { boxes.add(it) }
   for (block in report.classes) {
     if (block.column >= 0) boxes.add(block)
+    for (field in block.fields) {
+      boxes.add(field)
+      boxes.addAll(field.parts)
+    }
+  }
+  for (block in report.guarded) {
     for (field in block.fields) {
       boxes.add(field)
       boxes.addAll(field.parts)

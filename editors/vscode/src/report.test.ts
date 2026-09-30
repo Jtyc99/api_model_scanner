@@ -375,3 +375,238 @@ test('cascade: re-setting a box that is already right writes nothing', () => {
   assert.equal(setBox(TREE, AT.id, false), undefined);
   assert.equal(apply(TREE, AT.id, false), TREE);
 });
+
+const GUARDED_REPORT = [
+  "# Unused API model fields",
+  "",
+  "**1 field** · **1 class** · **1 read dynamically** · scanned 2026-09-29 16:07 · 4 fields checked",
+  "",
+  "Tick what you want to act on, then run `amscan remove` to delete it or `amscan disable` to comment it out.",
+  "",
+  "Ticking a class or field selects everything under it. Ticking `field declaration` takes the whole field, since nothing else can reference a field that no longer exists. With nothing ticked, both commands offer to act on everything under SELECT EVERYTHING — never on the fields read dynamically, listed first.",
+  "",
+  "Every row links twice, because no single link works everywhere: **line N** is a relative path, which most editors will open, while **VS Code** is the form that lands the cursor on the exact line in the editor this scan was run from.",
+  "",
+  "---",
+  "",
+  "**⚠️ Read dynamically — taken only when you tick them**",
+  "",
+  "Nothing references these by type, but a field of the same name is read through a `dynamic` receiver — `for (final bank in list ?? [])` makes `bank` dynamic — and no reference search can follow that. Removing one still compiles, then throws `NoSuchMethodError` when the read runs.",
+  "",
+  "Matching is by name alone, since a dynamic receiver cannot say which class it holds, so some of these may be truly unused. Give each receiver a type and rescan — or tick a field here once you have checked it. SELECT EVERYTHING, a class tick and `--all` never reach this section.",
+  "",
+  "### DepositBank",
+  "",
+  "Declared in [lib/models/person.dart](../../lib/models/person.dart)",
+  "",
+  "* [ ] **`minAmount`** · 3 parts · read at [lib/app.dart:6](vscode://file/Users/me/app/lib/app.dart:6:1)",
+  "  * [ ] `field declaration              ` [line 14](../../lib/models/person.dart#L14) · [VS Code](vscode://file/Users/me/app/lib/models/person.dart:14:1)",
+  "  * [ ] `constructor parameter minAmount` [line 19](../../lib/models/person.dart#L19) · [VS Code](vscode://file/Users/me/app/lib/models/person.dart:19:1)",
+  "  * [ ] `named argument minAmount       ` [line 25](../../lib/models/person.dart#L25) · [VS Code](vscode://file/Users/me/app/lib/models/person.dart:25:1)",
+  "",
+  "---",
+  "",
+  "**Unused — safe to select together**",
+  "",
+  "- [ ] **SELECT EVERYTHING**",
+  "",
+  "---",
+  "",
+  "## DepositBank",
+  "",
+  "└ [lib/models/person.dart](../../lib/models/person.dart)",
+  "",
+  "- [ ] **All of `DepositBank`**",
+  "",
+  "- [ ] **`branch`** · 3 parts",
+  "  - [ ] `field declaration           ` [line 16](../../lib/models/person.dart#L16) · [VS Code](vscode://file/Users/me/app/lib/models/person.dart:16:1)",
+  "  - [ ] `constructor parameter branch` [line 21](../../lib/models/person.dart#L21) · [VS Code](vscode://file/Users/me/app/lib/models/person.dart:21:1)",
+  "  - [ ] `named argument branch       ` [line 27](../../lib/models/person.dart#L27) · [VS Code](vscode://file/Users/me/app/lib/models/person.dart:27:1)",
+].join('\n');
+
+/** Line of the first row whose text includes [needle]. */
+const lineOf = (text: string, needle: string): number =>
+  text.split('\n').findIndex((line) => line.includes(needle));
+
+test('reads Select Everything when the guarded section comes before it', () => {
+  // The guarded section is written first. A parser that stays in it until
+  // the next class heading swallows the Select Everything row between them,
+  // and the editor's Select All goes dead.
+  const report = parseReport(GUARDED_REPORT);
+
+  assert.ok(report.selectAll, 'Select Everything was not read');
+  assert.equal(report.selectAll!.line, lineOf(GUARDED_REPORT, '**SELECT EVERYTHING**'));
+  assert.ok(
+    report.guarded[0].line < report.selectAll!.line,
+    'fixture should have the guarded section first',
+  );
+});
+
+test('keeps fields read dynamically apart from the rest', () => {
+  const report = parseReport(GUARDED_REPORT);
+
+  assert.deepEqual(
+    report.classes.flatMap((c) => c.fields.map((f) => f.name)),
+    ['branch'],
+  );
+  assert.deepEqual(
+    report.guarded.flatMap((c) => c.fields.map((f) => f.name)),
+    ['minAmount'],
+  );
+  assert.equal(report.title, 'Unused API model fields');
+});
+
+test('reads where a guarded field is read, and its parts', () => {
+  const field = parseReport(GUARDED_REPORT).guarded[0].fields[0];
+
+  assert.equal(field.parts.length, 3);
+  assert.deepEqual(field.reads, [
+    { label: 'lib/app.dart:6', file: '/Users/me/app/lib/app.dart', sourceLine: 6 },
+  ]);
+  assert.equal(parseReport(GUARDED_REPORT).guarded[0].file, 'lib/models/person.dart');
+});
+
+test('Select Everything never reaches the guarded section', () => {
+  const report = parseReport(GUARDED_REPORT);
+  const all = report.selectAll!.line;
+  const states = desiredStates(report, all, true);
+  const guarded = report.guarded[0].fields[0];
+
+  assert.equal(states.get(guarded.line), false);
+  for (const part of guarded.parts) {
+    assert.equal(states.get(part.line), false);
+  }
+  // …while everything it does own is ticked.
+  assert.equal(states.get(lineOf(GUARDED_REPORT, '**`branch`**')), true);
+});
+
+test('a class box never reaches the guarded section', () => {
+  const report = parseReport(GUARDED_REPORT);
+  const states = desiredStates(report, report.classes[0].line, true);
+
+  assert.equal(states.get(report.guarded[0].fields[0].line), false);
+});
+
+test('ticking a guarded field ticks its parts, and nothing else', () => {
+  const report = parseReport(GUARDED_REPORT);
+  const field = report.guarded[0].fields[0];
+  const states = desiredStates(report, field.line, true);
+
+  assert.equal(states.get(field.line), true);
+  for (const part of field.parts) {
+    assert.equal(states.get(part.line), true);
+  }
+  assert.equal(states.get(report.selectAll!.line), false);
+  assert.equal(states.get(report.classes[0].line), false);
+});
+
+test('ticking every guarded part settles its field, and nothing else', () => {
+  let report = parseReport(GUARDED_REPORT);
+  let text = GUARDED_REPORT;
+  for (const part of report.guarded[0].fields[0].parts) {
+    const edit = setBox(text, part.line, true)!;
+    const lines = text.split('\n');
+    const row = lines[edit.line];
+    lines[edit.line] =
+      row.slice(0, edit.column) + edit.replacement + row.slice(edit.column + 1);
+    text = lines.join('\n');
+  }
+  report = parseReport(text);
+  const last = report.guarded[0].fields[0].parts.at(-1)!;
+  const states = desiredStates(report, last.line, true);
+
+  assert.equal(states.get(report.guarded[0].fields[0].line), true);
+  assert.equal(states.get(report.selectAll!.line), false);
+});
+
+test('an older report, with no guarded section, parses as before', () => {
+  assert.deepEqual(parseReport(REPORT).guarded, []);
+});
+
+const DISABLED_REPORT = [
+  "# Disabled API model fields",
+  "",
+  "**2 fields** commented out but still present in the source · 1 read dynamically.",
+  "",
+  "Tick what you want, then run `amscan disable --undo` to put it back or `amscan disable --remove` to delete it for good. With nothing ticked, both offer to act on everything — though `--remove` never takes a field read dynamically without a tick of its own.",
+  "",
+  "This file disappears once nothing is disabled.",
+  "",
+  "---",
+  "",
+  "**⚠️ Read dynamically — deleted for good only when you tick them**",
+  "",
+  "A field of the same name was read through a dynamic receiver when these were disabled, so the app may throw wherever that read runs until they are back. --undo puts them back along with everything else; --remove takes one only when it is ticked itself.",
+  "",
+  "### DepositBank",
+  "",
+  "Declared in [lib/models/person.dart](../../lib/models/person.dart)",
+  "",
+  "* [ ] **`minAmount`** · 3 snippets · read at [lib/app.dart:6](vscode://file/Users/me/app/lib/app.dart:6:1)",
+  "  * `final double minAmount;`",
+  "  * `required this.minAmount,`",
+  "  * `minAmount: (json['minAmount'] as num).toDouble(),`",
+  "",
+  "---",
+  "",
+  "**Disabled — safe to select together**",
+  "",
+  "- [ ] **SELECT EVERYTHING**",
+  "",
+  "---",
+  "",
+  "## DepositBank",
+  "",
+  "└ [lib/models/person.dart](../../lib/models/person.dart)",
+  "",
+  "- [ ] **All of `DepositBank`**",
+  "",
+  "- [ ] **`branch`** · 3 snippets",
+  "  - `final String branch;`",
+  "  - `required this.branch,`",
+  "  - `branch: json['branch'] as String,`",
+].join('\n');
+
+test('the disabled report: dynamic fields apart, with their own headings', () => {
+  const report = parseReport(DISABLED_REPORT);
+
+  assert.deepEqual(report.guarded.flatMap((c) => c.fields.map((f) => f.name)), ['minAmount']);
+  assert.deepEqual(report.classes.flatMap((c) => c.fields.map((f) => f.name)), ['branch']);
+  // Its own words, not the unused report's.
+  assert.equal(report.mainTitle, 'Disabled — safe to select together');
+  assert.match(report.guardedTitle ?? '', /deleted for good only when you tick them/);
+  assert.match(report.guardedNote ?? '', /--undo puts them back/);
+});
+
+test('the disabled report: each field shows the code it had commented out', () => {
+  // Snippet rows carry no checkbox, and were once read as nothing at all —
+  // every disabled field showed "No removable declaration found".
+  const report = parseReport(DISABLED_REPORT);
+  const minAmount = report.guarded[0].fields[0];
+  const branch = report.classes[0].fields[0];
+
+  assert.equal(minAmount.snippets?.length, 3);
+  assert.equal(branch.snippets?.[0], 'final String branch;');
+  assert.deepEqual(minAmount.reads?.map((r) => r.label), ['lib/app.dart:6']);
+});
+
+test('the disabled report: a class keeps its file after the main heading', () => {
+  // A heading's note is the first prose after it, and nothing further: the
+  // class's file line must never be taken for one.
+  assert.equal(parseReport(DISABLED_REPORT).classes[0].file, 'lib/models/person.dart');
+});
+
+test('the disabled report: Select Everything never reaches the guarded section', () => {
+  const report = parseReport(DISABLED_REPORT);
+  const states = desiredStates(report, report.selectAll!.line, true);
+
+  assert.equal(states.get(report.guarded[0].fields[0].line), false);
+  assert.equal(states.get(report.classes[0].fields[0].line), true);
+});
+
+test('the unused report names its own sections', () => {
+  const report = parseReport(GUARDED_REPORT);
+
+  assert.equal(report.mainTitle, 'Unused — safe to select together');
+  assert.match(report.guardedTitle ?? '', /taken only when you tick them/);
+});

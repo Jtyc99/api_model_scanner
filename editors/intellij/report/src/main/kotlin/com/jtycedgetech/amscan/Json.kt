@@ -37,13 +37,23 @@ private fun Part.toJson() = buildString {
   append("}")
 }
 
+private fun Read.toJson() = buildString {
+  append("{")
+  append(""""label":${jsonString(label)},""")
+  append(""""file":${jsonOrNull(file)},""")
+  append(""""sourceLine":${sourceLine ?: "null"}""")
+  append("}")
+}
+
 private fun Field.toJson() = buildString {
   append("{")
   append(""""name":${jsonString(name)},""")
   append(""""checked":$checked,""")
   append(""""line":$line,""")
   append(""""column":$column,""")
-  append(""""parts":[${parts.joinToString(",") { it.toJson() }}]""")
+  append(""""parts":[${parts.joinToString(",") { it.toJson() }}],""")
+  append(""""reads":[${reads.joinToString(",") { it.toJson() }}],""")
+  append(""""snippets":[${snippets.joinToString(",") { jsonString(it) }}]""")
   append("}")
 }
 
@@ -67,6 +77,10 @@ fun Report.toJson(): String = buildString {
   append(""""title":${jsonString(title)},""")
   append(""""summary":${jsonOrNull(summary)},""")
   append(""""selectAll":${selectAll?.toJson() ?: "null"},""")
-  append(""""classes":[${classes.joinToString(",") { it.toJson() }}]""")
+  append(""""classes":[${classes.joinToString(",") { it.toJson() }}],""")
+  append(""""guarded":[${guarded.joinToString(",") { it.toJson() }}],""")
+  append(""""guardedTitle":${jsonOrNull(guardedTitle)},""")
+  append(""""mainTitle":${jsonOrNull(mainTitle)},""")
+  append(""""guardedNote":${jsonOrNull(guardedNote)}""")
   append("}")
 }

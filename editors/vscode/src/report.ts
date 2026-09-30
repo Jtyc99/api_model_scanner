@@ -29,9 +29,26 @@ export interface Part extends Box {
   sourceLine?: number;
 }
 
+/** Somewhere a field of this name is read through a `dynamic` receiver. */
+export interface Read {
+  /** As the report writes it, e.g. `lib/app.dart:6`. */
+  label: string;
+  /** Absolute path, from the read's `vscode://` link. */
+  file?: string;
+  /** 1-based. */
+  sourceLine?: number;
+}
+
 export interface Field extends Box {
   name: string;
   parts: Part[];
+  /** Set only on fields in the guarded section. */
+  reads?: Read[];
+  /**
+   * The disabled report's rows: code that was commented out, listed without
+   * checkboxes because a field moves back whole or not at all.
+   */
+  snippets?: string[];
 }
 
 export interface ClassBlock extends Box {
@@ -48,6 +65,18 @@ export interface Report {
   summary?: string;
   selectAll?: Box;
   classes: ClassBlock[];
+  /**
+   * Fields that look unused but are read through `dynamic` somewhere, so
+   * removing one compiles and then throws. Kept out of [classes] on purpose:
+   * nothing that cascades — Select Everything, a class box — ever reaches
+   * them. Only a tick on the field or one of its parts does.
+   */
+  guarded: ClassBlock[];
+  /** The headings the report gives each section, when it gives them. */
+  guardedTitle?: string;
+  mainTitle?: string;
+  /** The first paragraph under the guarded section's heading. */
+  guardedNote?: string;
 }
 
 const HEADING = /^#{2}\s+(.+?)\s*$/;
@@ -57,6 +86,20 @@ const FIELD = /^-\s*\[([ xX])\]\s*\*\*`([^`]+)`\*\*/;
 const PART = /^\s+-\s*\[([ xX])\]\s*`([^`]*)`/;
 const CLASS_FILE = /^└\s*\[([^\]]+)\]/;
 const VSCODE_LINK = /\]\(vscode:\/\/file([^:)]+):(\d+):\d+\)/;
+
+// The guarded section is written in shapes the patterns above do not match —
+// `###`, `*` bullets, `Declared in` — so an editor released before it existed
+// cannot take its rows for ordinary ones and tick them from Select Everything.
+const GUARDED_HEADING = /^#{3}\s+(.+?)\s*$/;
+const GUARDED_FILE = /^Declared in \[([^\]]+)\]/;
+const GUARDED_FIELD = /^\*\s*\[([ xX])\]\s*\*\*`([^`]+)`\*\*/;
+const GUARDED_PART = /^\s+\*\s*\[([ xX])\]\s*`([^`]*)`/;
+const READ_LINK = /\[([^\]]+)\]\(vscode:\/\/file([^:)]+):(\d+):\d+\)/g;
+// A line that is nothing but bold text heads a section: the CLI words it for
+// the report it is writing, so the editor shows that rather than guessing.
+const BANNER = /^\*\*([^*].*?)\*\*\s*$/;
+// A disabled field's code, one line per commented-out range, with no box.
+const SNIPPET = /^\s+[-*]\s+`(.*)`\s*$/;
 const SUMMARY = /^\*\*\d+ fields?\*\*|^\*\*\d+ fields?\*\* ·/;
 
 const ticked = (box: string): boolean => box.toLowerCase() === 'x';
@@ -73,9 +116,26 @@ const boxColumn = (line: string): number => line.indexOf('[');
 export function parseReport(text: string): Report {
   const lines = text.split('\n');
 
-  const report: Report = { title: 'API Model Scanner report', classes: [] };
+  const report: Report = {
+    title: 'API Model Scanner report',
+    classes: [],
+    guarded: [],
+  };
   let currentClass: ClassBlock | undefined;
   let currentField: Field | undefined;
+  let inGuarded = false;
+  // A heading waits here until the section it names begins.
+  let banner: string | undefined;
+  let note: string | undefined;
+  let awaitingNote = false;
+  const snippetOf = (line: string): boolean => {
+    const snippet = SNIPPET.exec(line);
+    if (snippet && currentField) {
+      (currentField.snippets ??= []).push(snippet[1]);
+      return true;
+    }
+    return false;
+  };
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -90,10 +150,55 @@ export function parseReport(text: string): Report {
       continue;
     }
 
+    // Read before anything that depends on the section: the guarded section
+    // sits above it, and Select Everything is what closes that section.
+    const selectAll = SELECT_ALL.exec(line);
+    if (selectAll) {
+      report.selectAll = {
+        checked: ticked(selectAll[1]),
+        line: i,
+        column: boxColumn(line),
+      };
+      inGuarded = false;
+      currentClass = undefined;
+      currentField = undefined;
+      if (banner && report.mainTitle === undefined) {
+        report.mainTitle = banner;
+      }
+      banner = undefined;
+      // The main table has no note to wait for.
+      awaitingNote = false;
+      continue;
+    }
+
+    // Also ahead of the guarded section's own lines: the main table's heading
+    // sits between that section and Select Everything.
+    const bannerLine = BANNER.exec(line);
+    if (bannerLine && !SELECT_ALL.test(line)) {
+      banner = bannerLine[1].trim();
+      note = undefined;
+      awaitingNote = true;
+      continue;
+    }
+    if (awaitingNote && line.trim() && !line.startsWith('#') &&
+        !line.startsWith('---')) {
+      note = line.replace(/`/g, '').trim();
+      awaitingNote = false;
+      continue;
+    }
+
     const heading = HEADING.exec(line);
-    if (heading) {
+    const guardedHeading = heading ? null : GUARDED_HEADING.exec(line);
+    if (heading || guardedHeading) {
+      inGuarded = guardedHeading !== null;
+      awaitingNote = false;
+      if (inGuarded && report.guardedTitle === undefined && banner) {
+        report.guardedTitle = banner;
+        report.guardedNote = note;
+        banner = undefined;
+      }
       currentClass = {
-        name: heading[1],
+        name: (heading ?? guardedHeading)![1],
         checked: false,
         line: i,
         column: -1,
@@ -101,7 +206,51 @@ export function parseReport(text: string): Report {
         fields: [],
       };
       currentField = undefined;
-      report.classes.push(currentClass);
+      (inGuarded ? report.guarded : report.classes).push(currentClass);
+      continue;
+    }
+
+    if (inGuarded && currentClass) {
+      const file = GUARDED_FILE.exec(line);
+      if (file) {
+        currentClass.file = file[1];
+        continue;
+      }
+
+      const field = GUARDED_FIELD.exec(line);
+      if (field) {
+        currentField = {
+          name: field[2],
+          checked: ticked(field[1]),
+          line: i,
+          column: boxColumn(line),
+          parts: [],
+          reads: [...line.matchAll(READ_LINK)].map((m) => ({
+            label: m[1],
+            file: decodeURIComponent(m[2]),
+            sourceLine: Number(m[3]),
+          })),
+        };
+        currentClass.fields.push(currentField);
+        continue;
+      }
+
+      if (snippetOf(line)) {
+        continue;
+      }
+
+      const part = GUARDED_PART.exec(line);
+      if (part && currentField) {
+        const link = VSCODE_LINK.exec(line);
+        currentField.parts.push({
+          label: part[2].trim(),
+          checked: ticked(part[1]),
+          line: i,
+          column: boxColumn(line),
+          file: link ? decodeURIComponent(link[1]) : undefined,
+          sourceLine: link ? Number(link[2]) : undefined,
+        });
+      }
       continue;
     }
 
@@ -115,16 +264,6 @@ export function parseReport(text: string): Report {
         currentClass.dead = true;
         continue;
       }
-    }
-
-    const selectAll = SELECT_ALL.exec(line);
-    if (selectAll) {
-      report.selectAll = {
-        checked: ticked(selectAll[1]),
-        line: i,
-        column: boxColumn(line),
-      };
-      continue;
     }
 
     // Before FIELD: `**All of \`X\`**` would not match FIELD anyway, since
@@ -161,7 +300,10 @@ export function parseReport(text: string): Report {
         file: link ? decodeURIComponent(link[1]) : undefined,
         sourceLine: link ? Number(link[2]) : undefined,
       });
+      continue;
     }
+
+    snippetOf(line);
   }
 
   return report;
@@ -234,6 +376,8 @@ export interface Located {
   kind: 'all' | 'class' | 'field' | 'part';
   classIndex?: number;
   fieldIndex?: number;
+  /** Indices point into `report.guarded` rather than `report.classes`. */
+  guarded?: boolean;
 }
 
 /** Finds the box on [line], or undefined when that line holds none. */
@@ -253,6 +397,17 @@ export function locate(report: Report, line: number): Located | undefined {
       }
       if (field.parts.some((part) => part.line === line)) {
         return { kind: 'part', classIndex: c, fieldIndex: f };
+      }
+    }
+  }
+  for (let c = 0; c < report.guarded.length; c++) {
+    const fields = report.guarded[c].fields;
+    for (let f = 0; f < fields.length; f++) {
+      if (fields[f].line === line) {
+        return { kind: 'field', classIndex: c, fieldIndex: f, guarded: true };
+      }
+      if (fields[f].parts.some((part) => part.line === line)) {
+        return { kind: 'part', classIndex: c, fieldIndex: f, guarded: true };
       }
     }
   }
@@ -313,9 +468,11 @@ export function desiredStates(
     case 'class':
       setClass(report.classes[target.classIndex!]);
       break;
-    case 'field':
-      setField(report.classes[target.classIndex!].fields[target.fieldIndex!]);
+    case 'field': {
+      const blocks = target.guarded ? report.guarded : report.classes;
+      setField(blocks[target.classIndex!].fields[target.fieldIndex!]);
       break;
+    }
     case 'part':
       state.set(line, checked);
       break;
@@ -338,6 +495,19 @@ export function desiredStates(
         block.line,
         block.fields.every((field) => state.get(field.line) === true),
       );
+    }
+  }
+
+  // A guarded field follows its own parts, and nothing follows it: it has no
+  // class box, and it never counts toward Select Everything.
+  for (const block of report.guarded) {
+    for (const field of block.fields) {
+      if (field.parts.length > 0) {
+        state.set(
+          field.line,
+          field.parts.every((part) => state.get(part.line) === true),
+        );
+      }
     }
   }
 
@@ -364,6 +534,12 @@ export function allBoxes(report: Report): Box[] {
     if (block.column >= 0) {
       boxes.push(block);
     }
+    for (const field of block.fields) {
+      boxes.push(field);
+      boxes.push(...field.parts);
+    }
+  }
+  for (const block of report.guarded) {
     for (const field of block.fields) {
       boxes.push(field);
       boxes.push(...field.parts);

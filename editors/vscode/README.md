@@ -14,6 +14,29 @@ preview.
 | Editing | the whole file is editable | only the checkboxes |
 | Jump to source | `vscode://` link per row | click the row's line |
 | Filter | editor find | a filter box over field names |
+| Columns | fixed by the text | drag an edge to resize, double-click to fit |
+
+Text too long for its column ends in an ellipsis and shows in full on hover.
+Columns start fitted to their content; **Fit columns** undoes any dragging.
+Widths, like which tables are folded, are remembered.
+
+## Fields read dynamically
+
+A field the CLI found read through a `dynamic` receiver — which no reference
+search can follow, so removing it compiles and then throws — gets a table of
+its own, **on top**, with a **Read At** column that opens each read. It starts
+folded, since nothing in it is taken without a tick of its own: the bar stays
+in view with a count, a line saying why those rows are there, and **Show**.
+The table everything acts on starts open. While filtering, any table with a
+match opens.
+
+Select All and class boxes never reach that table. Only a tick on the field
+itself, or on one of its parts, selects it — and the CLI names each read
+before it acts.
+
+In `disabled_fields.md` the same split holds, and each disabled field lists
+the code it had commented out. The report words each section's heading, so
+the disabled one does not call its table "Unused".
 
 ## How it stays safe
 
@@ -34,6 +57,15 @@ structure — a `##` heading names the class, an unindented task item names a
 field, indented task items are its parts in order — so neither can rely on
 anything invisible in the file.
 
+The dynamic-read section is written in shapes of its own — `###` headings,
+`*` bullets, `Declared in` — which no editor released before it recognises.
+That is deliberate: an older editor cannot take those rows for ordinary ones
+and tick them from Select All. To it, the section is simply not there.
+
+The table itself is drawn by a script shared, byte for byte, with the
+Android Studio plugin; a test in the Dart package fails if the two copies
+ever differ.
+
 ## Developing
 
 ```bash
@@ -49,15 +81,18 @@ To install it locally:
 
 ```bash
 npm run package
-code --install-extension amscan-report-0.1.0.vsix
+code --install-extension amscan-report-1.1.0.vsix
 ```
+
+The built `.vsix` is committed on purpose: `dart pub publish` ships it inside
+the package, and the CLI installs it from there when the Marketplace cannot be
+reached — or for VS Code forks, which use OpenVSX instead. Rebuild it
+whenever `src/` changes, or the package ships the old one.
 
 `Open as text` in the toolbar reopens the raw Markdown, and VS Code's
 **Reopen Editor With…** switches back either way.
 
-## Not built yet
+## Android Studio
 
-The JetBrains half. Android Studio / IntelliJ would need a separate
-`FileEditorProvider` with a Swing or JCEF table — the same idea, a second
-implementation. Until then, the Markdown report's relative links keep it
-usable there by hand.
+The same table exists for Android Studio and every other IntelliJ-platform
+IDE — see [`editors/intellij`](../intellij).

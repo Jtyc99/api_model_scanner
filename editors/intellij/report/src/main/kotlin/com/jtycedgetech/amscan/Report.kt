@@ -42,12 +42,28 @@ data class Part(
   val sourceLine: Int? = null,
 ) : Box
 
+/** Somewhere a field of this name is read through a `dynamic` receiver. */
+data class Read(
+  /** As the report writes it, e.g. `lib/app.dart:6`. */
+  val label: String,
+  val file: String? = null,
+  /** 1-based. */
+  val sourceLine: Int? = null,
+)
+
 data class Field(
   val name: String,
   override val checked: Boolean,
   override val line: Int,
   override val column: Int,
   val parts: MutableList<Part> = mutableListOf(),
+  /** Set only on fields in the guarded section. */
+  val reads: List<Read> = emptyList(),
+  /**
+   * The disabled report's rows: code that was commented out, listed without
+   * checkboxes because a field moves back whole or not at all.
+   */
+  val snippets: MutableList<String> = mutableListOf(),
 ) : Box
 
 data class ClassBlock(
@@ -66,6 +82,18 @@ data class Report(
   val summary: String? = null,
   val selectAll: SimpleBox? = null,
   val classes: List<ClassBlock> = emptyList(),
+  /**
+   * Fields that look unused but are read through `dynamic` somewhere, so
+   * removing one compiles and then throws. Kept out of [classes] on purpose:
+   * nothing that cascades — Select Everything, a class box — ever reaches
+   * them. Only a tick on the field or one of its parts does.
+   */
+  val guarded: List<ClassBlock> = emptyList(),
+  /** The headings the report gives each section, when it gives them. */
+  val guardedTitle: String? = null,
+  val mainTitle: String? = null,
+  /** The first paragraph under the guarded section's heading. */
+  val guardedNote: String? = null,
 )
 
 private val HEADING = Regex("""^#{2}\s+(.+?)\s*$""")
@@ -81,6 +109,22 @@ private val VSCODE_LINK = Regex("""]\(vscode://file([^:)]+):(\d+):\d+\)""")
 private val JETBRAINS_LINK =
   Regex("""]\(https?://[^/)]*/api/file([^:)]+):(\d+)\)""")
 private val SUMMARY = Regex("""^\*\*\d+ fields?\*\*""")
+
+// The guarded section is written in shapes the patterns above do not match —
+// `###`, `*` bullets, `Declared in` — so an editor released before it existed
+// cannot take its rows for ordinary ones and tick them from Select Everything.
+private val GUARDED_HEADING = Regex("""^#{3}\s+(.+?)\s*$""")
+private val GUARDED_FILE = Regex("""^Declared in \[([^]]+)]""")
+private val GUARDED_FIELD = Regex("""^\*\s*\[([ xX])]\s*\*\*`([^`]+)`\*\*""")
+private val GUARDED_PART = Regex("""^\s+\*\s*\[([ xX])]\s*`([^`]*)`""")
+private val READ_VSCODE = Regex("""\[([^]]+)]\(vscode://file([^:)]+):(\d+):\d+\)""")
+private val READ_JETBRAINS =
+  Regex("""\[([^]]+)]\(https?://[^/)]*/api/file([^:)]+):(\d+)\)""")
+// A line that is nothing but bold text heads a section: the CLI words it for
+// the report it is writing, so the editor shows that rather than guessing.
+private val BANNER = Regex("""^\*\*([^*].*?)\*\*\s*$""")
+// A disabled field's code, one line per commented-out range, with no box.
+private val SNIPPET = Regex("""^\s+[-*]\s+`(.*)`\s*$""")
 
 private fun ticked(box: String) = box.lowercase() == "x"
 
@@ -100,14 +144,31 @@ fun parseReport(text: String): Report {
   var summary: String? = null
   var selectAll: SimpleBox? = null
   val classes = mutableListOf<ClassBlock>()
+  val guarded = mutableListOf<ClassBlock>()
 
   var currentClass: ClassBlock? = null
   var currentField: Field? = null
+  var inGuarded = false
+  // A heading waits here until the section it names begins.
+  var banner: String? = null
+  var note: String? = null
+  var awaitingNote = false
+  var guardedTitle: String? = null
+  var guardedNote: String? = null
+  var mainTitle: String? = null
+
+  fun snippetOf(line: String): Boolean {
+    val snippet = SNIPPET.find(line) ?: return false
+    val field = currentField ?: return false
+    field.snippets.add(snippet.groupValues[1])
+    return true
+  }
 
   // A class is rebuilt rather than mutated when its own box or file turns up
   // on a later line, because the heading comes before both.
   fun replaceClass(updated: ClassBlock) {
-    classes[classes.lastIndex] = updated
+    val into = if (inGuarded) guarded else classes
+    into[into.lastIndex] = updated
     currentClass = updated
   }
 
@@ -122,17 +183,108 @@ fun parseReport(text: String): Report {
       continue
     }
 
+    // Read before anything that depends on the section: the guarded section
+    // sits above it, and Select Everything is what closes that section.
+    val all = SELECT_ALL.find(line)
+    if (all != null) {
+      selectAll = SimpleBox(ticked(all.groupValues[1]), i, boxColumn(line))
+      inGuarded = false
+      currentClass = null
+      currentField = null
+      if (banner != null && mainTitle == null) mainTitle = banner
+      banner = null
+      // The main table has no note to wait for.
+      awaitingNote = false
+      continue
+    }
+
+    // Also ahead of the guarded section's own lines: the main table's heading
+    // sits between that section and Select Everything.
+    val bannerLine = BANNER.find(line)
+    if (bannerLine != null) {
+      banner = bannerLine.groupValues[1].trim()
+      note = null
+      awaitingNote = true
+      continue
+    }
+    if (awaitingNote && line.isNotBlank() && !line.startsWith("#") &&
+      !line.startsWith("---")
+    ) {
+      note = line.replace("`", "").trim()
+      awaitingNote = false
+      continue
+    }
+
     val heading = HEADING.find(line)
-    if (heading != null) {
+    val guardedHeading = if (heading == null) GUARDED_HEADING.find(line) else null
+    if (heading != null || guardedHeading != null) {
+      inGuarded = guardedHeading != null
+      awaitingNote = false
+      if (inGuarded && guardedTitle == null && banner != null) {
+        guardedTitle = banner
+        guardedNote = note
+        banner = null
+      }
       val block = ClassBlock(
-        name = heading.groupValues[1],
+        name = (heading ?: guardedHeading)!!.groupValues[1],
         checked = false,
         line = i,
         column = -1,
       )
-      classes.add(block)
+      (if (inGuarded) guarded else classes).add(block)
       currentClass = block
       currentField = null
+      continue
+    }
+
+    val guardedClass = currentClass
+    if (inGuarded && guardedClass != null) {
+      val file = GUARDED_FILE.find(line)
+      if (file != null) {
+        replaceClass(guardedClass.copy(file = file.groupValues[1]))
+        continue
+      }
+
+      val field = GUARDED_FIELD.find(line)
+      if (field != null) {
+        val reads = (READ_VSCODE.findAll(line) + READ_JETBRAINS.findAll(line))
+          .sortedBy { it.range.first }
+          .map {
+            Read(
+              label = it.groupValues[1],
+              file = decodePath(it.groupValues[2]),
+              sourceLine = it.groupValues[3].toIntOrNull(),
+            )
+          }
+          .toList()
+        val entry = Field(
+          name = field.groupValues[2],
+          checked = ticked(field.groupValues[1]),
+          line = i,
+          column = boxColumn(line),
+          reads = reads,
+        )
+        guardedClass.fields.add(entry)
+        currentField = entry
+        continue
+      }
+
+      if (snippetOf(line)) continue
+
+      val part = GUARDED_PART.find(line)
+      if (part != null && currentField != null) {
+        val link = VSCODE_LINK.find(line) ?: JETBRAINS_LINK.find(line)
+        currentField!!.parts.add(
+          Part(
+            label = part.groupValues[2].trim(),
+            checked = ticked(part.groupValues[1]),
+            line = i,
+            column = boxColumn(line),
+            file = link?.groupValues?.get(1)?.let(::decodePath),
+            sourceLine = link?.groupValues?.get(2)?.toIntOrNull(),
+          ),
+        )
+      }
       continue
     }
 
@@ -147,12 +299,6 @@ fun parseReport(text: String): Report {
         replaceClass(open.copy(dead = true))
         continue
       }
-    }
-
-    val all = SELECT_ALL.find(line)
-    if (all != null) {
-      selectAll = SimpleBox(ticked(all.groupValues[1]), i, boxColumn(line))
-      continue
     }
 
     // Before FIELD: `**All of \`X\`**` would not match FIELD anyway, since
@@ -197,34 +343,49 @@ fun parseReport(text: String): Report {
           sourceLine = link?.groupValues?.get(2)?.toIntOrNull(),
         ),
       )
+      continue
     }
+
+    snippetOf(line)
   }
 
-  return Report(title = title, summary = summary, selectAll = selectAll, classes = classes)
+  return Report(
+    title = title,
+    summary = summary,
+    selectAll = selectAll,
+    classes = classes,
+    guarded = guarded,
+    guardedTitle = guardedTitle,
+    mainTitle = mainTitle,
+    guardedNote = guardedNote,
+  )
 }
 
 /// Undoes the percent-encoding the CLI applies to a path in a link.
 ///
-/// Hand-rolled to keep this module free of any platform dependency; the only
-/// escapes the writer produces are `%XX`.
+/// The escapes are UTF-8 bytes, so they are gathered as bytes and decoded
+/// together: turning each `%XX` into a character on its own reads `项目` as
+/// `é¡¹ç®`, and every link under a folder named in anything but ASCII
+/// pointed at a path that does not exist. Hand-rolled to keep this module
+/// free of any platform dependency.
 fun decodePath(encoded: String): String {
   if (!encoded.contains('%')) {
     return encoded
   }
-  val out = StringBuilder()
+  val bytes = ArrayList<Byte>(encoded.length)
   var i = 0
   while (i < encoded.length) {
     val c = encoded[i]
     if (c == '%' && i + 2 < encoded.length) {
       val code = encoded.substring(i + 1, i + 3).toIntOrNull(16)
       if (code != null) {
-        out.append(code.toChar())
+        bytes.add(code.toByte())
         i += 3
         continue
       }
     }
-    out.append(c)
+    for (b in c.toString().encodeToByteArray()) bytes.add(b)
     i++
   }
-  return out.toString()
+  return bytes.toByteArray().decodeToString()
 }

@@ -112,4 +112,17 @@ class ReportTest {
     assertEquals("/tmp/my dir/a.dart",
       report.classes.single().fields.single().parts.single().file)
   }
+
+  @Test
+  fun `a path outside ASCII decodes to the file it names`() {
+    // The CLI writes paths as Dart's Uri.encodeFull does: UTF-8, escaped.
+    val encoded = "/Users/me/%E9%A1%B9%E7%9B%AE/caf%C3%A9/model.dart"
+    assertEquals("/Users/me/项目/café/model.dart", decodePath(encoded))
+  }
+
+  @Test
+  fun `a plain path and a space still decode as before`() {
+    assertEquals("/Users/me/app/a.dart", decodePath("/Users/me/app/a.dart"))
+    assertEquals("/Users/me/Mobile Dev/a.dart", decodePath("/Users/me/Mobile%20Dev/a.dart"))
+  }
 }

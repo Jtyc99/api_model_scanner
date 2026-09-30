@@ -42,4 +42,16 @@ class HtmlTest {
   fun `the theme's colours reach the stylesheet`() {
     assertTrue(renderHtml(theme).contains("#8ab"))
   }
+
+  @Test
+  fun `column edges use a cursor the IDE can actually show`() {
+    // The embedded browser passes its cursor to Swing as one of AWT's
+    // built-in shapes, and `col-resize` is not one it translates: it arrives
+    // as the plain arrow, and a draggable edge looks like any other.
+    val html = renderHtml(theme)
+    val css = html.substringBefore("</style>")
+
+    assertTrue(css.contains("cursor: e-resize"), "the edge needs a resize cursor")
+    assertTrue(!Regex("""cursor:\s*col-resize""").containsMatchIn(css), "col-resize shows as an arrow here")
+  }
 }
